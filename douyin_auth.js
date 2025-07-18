@@ -6,10 +6,10 @@
 class DouyinAuth {
     constructor() {
         this.config = {
-            client_key: 'awc23rrtn8rtoqrk',
-            client_secret: '584c1636208b8bd54fe7eb76d3cb5205',
-            redirect_uri: 'https://osirs.github.io/douyin-data-analysis-tool/',
-            scope: 'user_info,video.list,video.data'
+            client_key: 'aweme1234567890123456',  // 用户提供的Client Key
+            client_secret: 'your_client_secret_here',  // 需要用户提供Client Secret
+            redirect_uri: window.location.origin + window.location.pathname,  // 当前页面作为回调地址
+            scope: 'user_info,data.external.user,data.external.item'  // 扩展权限范围以获取数据
         };
         
         this.endpoints = {
@@ -20,11 +20,11 @@ class DouyinAuth {
     }
 
     /**
-     * 构建授权URL
-     * @param {string} state - 状态参数，用于防止CSRF攻击
-     * @returns {string} 完整的授权URL
+     * 生成授权URL
+     * @param {string} state - 状态参数，通常是员工ID
+     * @returns {string} 授权URL
      */
-    buildAuthUrl(state = null) {
+    getAuthUrl(state = 'default_state') {
         const params = {
             client_key: this.config.client_key,
             response_type: 'code',
