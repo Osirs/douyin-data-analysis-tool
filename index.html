@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>抖音数据推送及分析工具</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="styles.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Microsoft YaHei', sans-serif;
+        }
+        .main-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            margin: 20px;
+            padding: 30px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e9ecef;
+        }
+        .header h1 {
+            color: #2c3e50;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        .header p {
+            color: #6c757d;
+            font-size: 1.1rem;
+        }
+        .feature-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            border-left: 5px solid #007bff;
+        }
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+        }
+        .feature-card h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+        }
+        .feature-card h3 i {
+            margin-right: 10px;
+            color: #007bff;
+        }
+        .btn-custom {
+            background: linear-gradient(45deg, #007bff, #0056b3);
+            border: none;
+            border-radius: 25px;
+            padding: 10px 25px;
+            color: white;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .btn-custom:hover {
+            background: linear-gradient(45deg, #0056b3, #004085);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 123, 255, 0.4);
+            color: white;
+        }
+        .status-badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .status-authorized {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status-unauthorized {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .sync-info {
+            background: linear-gradient(45deg, #28a745, #20c997);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .employee-table {
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+        }
+        .table th {
+            background-color: #f8f9fa;
+            border: none;
+            font-weight: 600;
+            color: #495057;
+        }
+        .table td {
+            border: none;
+            vertical-align: middle;
+        }
+        .table tbody tr {
+            border-bottom: 1px solid #e9ecef;
+        }
+        .table tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="main-container">
+            <!-- 页面头部 -->
+            <div class="header">
+                <h1><i class="fab fa-tiktok"></i> 抖音数据推送及分析工具</h1>
+                <p>企业抖音数据自动同步与分析平台</p>
+            </div>
+
+            <div class="row">
+                <!-- 数据分析结果 -->
+                <div class="col-lg-6 col-md-12">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-chart-line"></i> 数据分析结果</h3>
+                        <p class="text-muted mb-3">查看企业员工抖音数据的详细分析报告，包括粉丝增长、视频表现等关键指标。</p>
+                        <button class="btn btn-custom" onclick="openAnalysisReport()">
+                            <i class="fas fa-external-link-alt me-2"></i>打开数据分析看板
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 数据同步 -->
+                <div class="col-lg-6 col-md-12">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-sync-alt"></i> 数据同步</h3>
+                        <div class="sync-info">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><i class="fas fa-clock me-2"></i>最后同步时间</span>
+                                <span id="lastSyncTime">2024-01-15 23:30:00</span>
+                            </div>
+                        </div>
+                        <p class="text-muted mb-3">系统每天晚上23:30自动同步数据，您也可以手动触发同步。</p>
+                        <button class="btn btn-custom" onclick="manualSync()" id="syncBtn">
+                            <i class="fas fa-sync me-2"></i>手动同步数据
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 员工账号管理 -->
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="feature-card">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h3><i class="fas fa-users"></i> 企业员工抖音账号管理</h3>
+                            <button class="btn btn-custom" onclick="addEmployee()">
+                                <i class="fas fa-plus me-2"></i>添加员工
+                            </button>
+                        </div>
+                        <p class="text-muted mb-4">管理企业员工的抖音账号授权状态，确保数据同步正常进行。</p>
+                        
+                        <div class="employee-table">
+                            <table class="table table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>员工姓名</th>
+                                        <th>抖音账号</th>
+                                        <th>授权状态</th>
+                                        <th>最后更新</th>
+                                        <th>粉丝数</th>
+                                        <th>视频数</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="employeeTableBody">
+                                    <tr>
+                                        <td>张三</td>
+                                        <td>@zhangsan_douyin</td>
+                                        <td><span class="status-badge status-authorized">已授权</span></td>
+                                        <td>2024-01-15 10:30</td>
+                                        <td>12.5K</td>
+                                        <td>45</td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-primary me-2" onclick="refreshAuth('1')">
+                                                <i class="fas fa-refresh"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger" onclick="revokeAuth('1')">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>李四</td>
+                                        <td>@lisi_creator</td>
+                                        <td><span class="status-badge status-authorized">已授权</span></td>
+                                        <td>2024-01-15 09:15</td>
+                                        <td>8.3K</td>
+                                        <td>32</td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-primary me-2" onclick="refreshAuth('2')">
+                                                <i class="fas fa-refresh"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger" onclick="revokeAuth('2')">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>王五</td>
+                                        <td>@wangwu_video</td>
+                                        <td><span class="status-badge status-unauthorized">未授权</span></td>
+                                        <td>-</td>
+                                        <td>-</td>
+                                        <td>-</td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-success" onclick="authorize('3')">
+                                                <i class="fas fa-key"></i> 授权
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加员工模态框 -->
+    <div class="modal fade" id="addEmployeeModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">添加员工</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addEmployeeForm">
+                        <div class="mb-3">
+                            <label for="employeeName" class="form-label">员工姓名</label>
+                            <input type="text" class="form-control" id="employeeName" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="douyinAccount" class="form-label">抖音账号</label>
+                            <input type="text" class="form-control" id="douyinAccount" placeholder="@username" required>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-custom" onclick="saveEmployee()">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
