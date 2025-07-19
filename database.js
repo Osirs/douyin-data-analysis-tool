@@ -1,504 +1,499 @@
 /**
- * 数据库管理模块
- * 使用localStorage模拟数据库存储
- * 管理员工信息、授权状态和数据同步记录
+ * MySQL数据库管理器
+ * 替换原有的localStorage实现，提供完整的数据库操作功能
  */
+const MySQLConfig = require('./config/database');
 
 class DatabaseManager {
     constructor() {
-        this.storageKeys = {
-            employees: 'douyin_employees',
-            authTokens: 'douyin_auth_tokens',
-            syncHistory: 'douyin_sync_history',
-            userData: 'douyin_user_data'
-        };
-        
-        // 初始化数据库
-        this.initDatabase();
+        this.dbConfig = new MySQLConfig();
+        this.pool = null;
+        this.isInitialized = false;
     }
 
     /**
-     * 初始化数据库，创建默认数据结构
+     * 初始化数据库连接
      */
-    initDatabase() {
-        if (!localStorage.getItem(this.storageKeys.employees)) {
-            this.saveEmployees([]);
+    async initialize() {
+        try {
+            this.pool = await this.dbConfig.createPool();
+            this.isInitialized = true;
+            console.log('数据库管理器初始化成功');
+            return true;
+        } catch (error) {
+            console.error('数据库管理器初始化失败:', error);
+            throw error;
         }
-        if (!localStorage.getItem(this.storageKeys.authTokens)) {
-            this.saveAuthTokens({});
+    }
+
+    /**
+     * 确保数据库已初始化
+     */
+    ensureInitialized() {
+        if (!this.isInitialized || !this.pool) {
+            throw new Error('数据库未初始化，请先调用initialize()');
         }
-        if (!localStorage.getItem(this.storageKeys.syncHistory)) {
-            this.saveSyncHistory([]);
-        }
-        if (!localStorage.getItem(this.storageKeys.userData)) {
-            this.saveUserData({});
+    }
+
+    /**
+     * 执行SQL查询
+     */
+    async query(sql, params = []) {
+        this.ensureInitialized();
+        try {
+            const [rows] = await this.pool.execute(sql, params);
+            return rows;
+        } catch (error) {
+            console.error('SQL查询失败:', error);
+            throw error;
         }
     }
 
     // ==================== 员工管理 ====================
 
     /**
-     * 获取所有员工
-     * @returns {Array} 员工列表
-     */
-    getEmployees() {
-        try {
-            const data = localStorage.getItem(this.storageKeys.employees);
-            return data ? JSON.parse(data) : [];
-        } catch (error) {
-            console.error('获取员工数据失败:', error);
-            return [];
-        }
-    }
-
-    /**
-     * 保存员工列表
-     * @param {Array} employees - 员工列表
-     */
-    saveEmployees(employees) {
-        try {
-            localStorage.setItem(this.storageKeys.employees, JSON.stringify(employees));
-        } catch (error) {
-            console.error('保存员工数据失败:', error);
-        }
-    }
-
-    /**
      * 添加员工
-     * @param {Object} employee - 员工信息
-     * @returns {Object} 添加结果
      */
-    addEmployee(employee) {
-        try {
-            const employees = this.getEmployees();
-            
-            // 检查是否已存在相同抖音账号
-            const existingEmployee = employees.find(emp => emp.douyinAccount === employee.douyinAccount);
-            if (existingEmployee) {
-                return {
-                    success: false,
-                    message: '该抖音账号已存在'
-                };
-            }
-
-            const newEmployee = {
-                id: this.generateId(),
-                name: employee.name,
-                douyinAccount: employee.douyinAccount,
-                authStatus: 'unauthorized', // unauthorized, authorized, expired
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                lastSyncTime: null,
-                openId: null
-            };
-
-            employees.push(newEmployee);
-            this.saveEmployees(employees);
-
-            return {
-                success: true,
-                data: newEmployee,
-                message: '员工添加成功'
-            };
-        } catch (error) {
-            console.error('添加员工失败:', error);
-            return {
-                success: false,
-                message: '添加员工失败: ' + error.message
-            };
+    async addEmployee(employee) {
+        const { id, name, department = '', position = '', douyin_account = '' } = employee;
+        
+        // 检查员工是否已存在
+        const existing = await this.getEmployee(id);
+        if (existing) {
+            throw new Error(`员工ID ${id} 已存在`);
         }
+
+        const sql = `
+            INSERT INTO employees (id, name, department, position, douyin_account, auth_status)
+            VALUES (?, ?, ?, ?, ?, 'pending')
+        `;
+        
+        await this.query(sql, [id, name, department, position, douyin_account]);
+        return await this.getEmployee(id);
+    }
+
+    /**
+     * 获取员工信息
+     */
+    async getEmployee(employeeId) {
+        const sql = 'SELECT * FROM employees WHERE id = ?';
+        const rows = await this.query(sql, [employeeId]);
+        return rows.length > 0 ? rows[0] : null;
+    }
+
+    /**
+     * 获取所有员工
+     */
+    async getAllEmployees() {
+        const sql = 'SELECT * FROM employee_overview ORDER BY created_at DESC';
+        return await this.query(sql);
     }
 
     /**
      * 更新员工信息
-     * @param {string} employeeId - 员工ID
-     * @param {Object} updates - 更新的字段
-     * @returns {Object} 更新结果
      */
-    updateEmployee(employeeId, updates) {
-        try {
-            const employees = this.getEmployees();
-            const employeeIndex = employees.findIndex(emp => emp.id === employeeId);
-            
-            if (employeeIndex === -1) {
-                return {
-                    success: false,
-                    message: '员工不存在'
-                };
+    async updateEmployee(employeeId, updates) {
+        const allowedFields = ['name', 'department', 'position', 'douyin_account', 'auth_status'];
+        const updateFields = [];
+        const values = [];
+
+        Object.keys(updates).forEach(key => {
+            if (allowedFields.includes(key)) {
+                updateFields.push(`${key} = ?`);
+                values.push(updates[key]);
             }
+        });
 
-            employees[employeeIndex] = {
-                ...employees[employeeIndex],
-                ...updates,
-                updatedAt: new Date().toISOString()
-            };
-
-            this.saveEmployees(employees);
-
-            return {
-                success: true,
-                data: employees[employeeIndex],
-                message: '员工信息更新成功'
-            };
-        } catch (error) {
-            console.error('更新员工失败:', error);
-            return {
-                success: false,
-                message: '更新员工失败: ' + error.message
-            };
+        if (updateFields.length === 0) {
+            throw new Error('没有有效的更新字段');
         }
+
+        values.push(employeeId);
+        const sql = `UPDATE employees SET ${updateFields.join(', ')} WHERE id = ?`;
+        
+        await this.query(sql, values);
+        return await this.getEmployee(employeeId);
     }
 
     /**
      * 删除员工
-     * @param {string} employeeId - 员工ID
-     * @returns {Object} 删除结果
      */
-    deleteEmployee(employeeId) {
-        try {
-            const employees = this.getEmployees();
-            const filteredEmployees = employees.filter(emp => emp.id !== employeeId);
-            
-            if (employees.length === filteredEmployees.length) {
-                return {
-                    success: false,
-                    message: '员工不存在'
-                };
-            }
-
-            this.saveEmployees(filteredEmployees);
-
-            // 同时删除相关的授权token和用户数据
-            this.removeAuthToken(employeeId);
-            this.removeUserData(employeeId);
-
-            return {
-                success: true,
-                message: '员工删除成功'
-            };
-        } catch (error) {
-            console.error('删除员工失败:', error);
-            return {
-                success: false,
-                message: '删除员工失败: ' + error.message
-            };
-        }
-    }
-
-    /**
-     * 根据ID获取员工
-     * @param {string} employeeId - 员工ID
-     * @returns {Object|null} 员工信息
-     */
-    getEmployeeById(employeeId) {
-        const employees = this.getEmployees();
-        return employees.find(emp => emp.id === employeeId) || null;
+    async deleteEmployee(employeeId) {
+        const sql = 'DELETE FROM employees WHERE id = ?';
+        const result = await this.query(sql, [employeeId]);
+        return result.affectedRows > 0;
     }
 
     // ==================== 授权Token管理 ====================
 
     /**
-     * 获取所有授权tokens
-     * @returns {Object} 授权tokens对象
+     * 保存授权Token
      */
-    getAuthTokens() {
-        try {
-            const data = localStorage.getItem(this.storageKeys.authTokens);
-            return data ? JSON.parse(data) : {};
-        } catch (error) {
-            console.error('获取授权tokens失败:', error);
-            return {};
-        }
-    }
+    async saveAuthToken(employeeId, tokenData) {
+        const {
+            access_token,
+            refresh_token,
+            expires_in = 0,
+            refresh_expires_in = 0,
+            scope = '',
+            open_id = ''
+        } = tokenData;
 
-    /**
-     * 保存授权tokens
-     * @param {Object} tokens - 授权tokens对象
-     */
-    saveAuthTokens(tokens) {
-        try {
-            localStorage.setItem(this.storageKeys.authTokens, JSON.stringify(tokens));
-        } catch (error) {
-            console.error('保存授权tokens失败:', error);
-        }
-    }
+        const sql = `
+            INSERT INTO auth_tokens 
+            (employee_id, access_token, refresh_token, expires_in, refresh_expires_in, scope, open_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+            access_token = VALUES(access_token),
+            refresh_token = VALUES(refresh_token),
+            expires_in = VALUES(expires_in),
+            refresh_expires_in = VALUES(refresh_expires_in),
+            scope = VALUES(scope),
+            open_id = VALUES(open_id),
+            updated_at = CURRENT_TIMESTAMP
+        `;
 
-    /**
-     * 保存员工的授权token
-     * @param {string} employeeId - 员工ID
-     * @param {Object} tokenData - token数据
-     * @returns {Object} 保存结果
-     */
-    saveEmployeeAuthToken(employeeId, tokenData) {
-        try {
-            const tokens = this.getAuthTokens();
-            
-            tokens[employeeId] = {
-                access_token: tokenData.access_token,
-                refresh_token: tokenData.refresh_token,
-                expires_in: tokenData.expires_in,
-                open_id: tokenData.open_id,
-                scope: tokenData.scope,
-                created_at: Date.now(),
-                updated_at: Date.now()
-            };
+        await this.query(sql, [
+            employeeId, access_token, refresh_token, 
+            expires_in, refresh_expires_in, scope, open_id
+        ]);
 
-            this.saveAuthTokens(tokens);
-
-            // 更新员工的授权状态和openId
-            this.updateEmployee(employeeId, {
-                authStatus: 'authorized',
-                openId: tokenData.open_id
-            });
-
-            return {
-                success: true,
-                message: '授权token保存成功'
-            };
-        } catch (error) {
-            console.error('保存授权token失败:', error);
-            return {
-                success: false,
-                message: '保存授权token失败: ' + error.message
-            };
-        }
-    }
-
-    /**
-     * 获取员工的授权token
-     * @param {string} employeeId - 员工ID
-     * @returns {Object|null} token信息
-     */
-    getEmployeeAuthToken(employeeId) {
-        const tokens = this.getAuthTokens();
-        const tokenInfo = tokens[employeeId];
+        // 更新员工授权状态
+        await this.updateEmployee(employeeId, { auth_status: 'authorized' });
         
-        if (!tokenInfo) return null;
-
-        // 检查token是否过期
-        const now = Date.now();
-        const expiresAt = tokenInfo.created_at + (tokenInfo.expires_in * 1000);
-        
-        if (now >= expiresAt) {
-            console.log(`员工 ${employeeId} 的token已过期`);
-            this.updateEmployee(employeeId, { authStatus: 'expired' });
-            return null;
-        }
-
-        return tokenInfo;
+        return true;
     }
 
     /**
-     * 移除员工的授权token
-     * @param {string} employeeId - 员工ID
+     * 获取授权Token
      */
-    removeAuthToken(employeeId) {
-        const tokens = this.getAuthTokens();
-        delete tokens[employeeId];
-        this.saveAuthTokens(tokens);
+    async getAuthToken(employeeId) {
+        const sql = 'SELECT * FROM auth_tokens WHERE employee_id = ?';
+        const rows = await this.query(sql, [employeeId]);
+        return rows.length > 0 ? rows[0] : null;
+    }
+
+    /**
+     * 删除授权Token
+     */
+    async deleteAuthToken(employeeId) {
+        const sql = 'DELETE FROM auth_tokens WHERE employee_id = ?';
+        await this.query(sql, [employeeId]);
         
         // 更新员工授权状态
-        this.updateEmployee(employeeId, {
-            authStatus: 'unauthorized',
-            openId: null
-        });
+        await this.updateEmployee(employeeId, { auth_status: 'revoked' });
+        
+        return true;
     }
 
     // ==================== 用户数据管理 ====================
 
     /**
-     * 获取所有用户数据
-     * @returns {Object} 用户数据对象
-     */
-    getUserData() {
-        try {
-            const data = localStorage.getItem(this.storageKeys.userData);
-            return data ? JSON.parse(data) : {};
-        } catch (error) {
-            console.error('获取用户数据失败:', error);
-            return {};
-        }
-    }
-
-    /**
      * 保存用户数据
-     * @param {Object} userData - 用户数据对象
      */
-    saveUserData(userData) {
-        try {
-            localStorage.setItem(this.storageKeys.userData, JSON.stringify(userData));
-        } catch (error) {
-            console.error('保存用户数据失败:', error);
+    async saveUserData(employeeId, userData) {
+        const {
+            open_id = '',
+            nickname = '',
+            avatar_url = '',
+            follower_count = 0,
+            following_count = 0,
+            total_favorited = 0,
+            video_count = 0
+        } = userData;
+
+        const today = new Date().toISOString().split('T')[0];
+        
+        const sql = `
+            INSERT INTO user_data 
+            (employee_id, open_id, nickname, avatar_url, follower_count, 
+             following_count, total_favorited, video_count, data_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+            nickname = VALUES(nickname),
+            avatar_url = VALUES(avatar_url),
+            follower_count = VALUES(follower_count),
+            following_count = VALUES(following_count),
+            total_favorited = VALUES(total_favorited),
+            video_count = VALUES(video_count)
+        `;
+
+        await this.query(sql, [
+            employeeId, open_id, nickname, avatar_url,
+            follower_count, following_count, total_favorited, video_count, today
+        ]);
+
+        return true;
+    }
+
+    /**
+     * 获取用户最新数据
+     */
+    async getUserData(employeeId) {
+        const sql = `
+            SELECT * FROM user_data 
+            WHERE employee_id = ? 
+            ORDER BY data_date DESC 
+            LIMIT 1
+        `;
+        const rows = await this.query(sql, [employeeId]);
+        return rows.length > 0 ? rows[0] : null;
+    }
+
+    /**
+     * 获取用户历史数据
+     */
+    async getUserDataHistory(employeeId, days = 30) {
+        const sql = `
+            SELECT * FROM user_data 
+            WHERE employee_id = ? AND data_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+            ORDER BY data_date DESC
+        `;
+        return await this.query(sql, [employeeId, days]);
+    }
+
+    // ==================== 视频数据管理 ====================
+
+    /**
+     * 保存视频数据
+     */
+    async saveVideoData(employeeId, videoList) {
+        if (!Array.isArray(videoList) || videoList.length === 0) {
+            return true;
         }
-    }
 
-    /**
-     * 保存员工的用户数据
-     * @param {string} employeeId - 员工ID
-     * @param {Object} data - 用户数据
-     */
-    saveEmployeeUserData(employeeId, data) {
-        const userData = this.getUserData();
-        
-        userData[employeeId] = {
-            ...data,
-            updated_at: new Date().toISOString()
-        };
+        const today = new Date().toISOString().split('T')[0];
+        const values = [];
+        const placeholders = [];
 
-        this.saveUserData(userData);
-        
-        // 更新员工的最后同步时间
-        this.updateEmployee(employeeId, {
-            lastSyncTime: new Date().toISOString()
+        videoList.forEach(video => {
+            const {
+                item_id,
+                title = '',
+                cover_url = '',
+                play_count = 0,
+                digg_count = 0,
+                comment_count = 0,
+                share_count = 0,
+                create_time = null
+            } = video;
+
+            placeholders.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+            values.push(
+                employeeId, item_id, title, cover_url,
+                play_count, digg_count, comment_count, share_count,
+                create_time, today
+            );
         });
+
+        const sql = `
+            INSERT INTO video_data 
+            (employee_id, item_id, title, cover_url, play_count, 
+             digg_count, comment_count, share_count, create_time, data_date)
+            VALUES ${placeholders.join(', ')}
+            ON DUPLICATE KEY UPDATE
+            title = VALUES(title),
+            cover_url = VALUES(cover_url),
+            play_count = VALUES(play_count),
+            digg_count = VALUES(digg_count),
+            comment_count = VALUES(comment_count),
+            share_count = VALUES(share_count)
+        `;
+
+        await this.query(sql, values);
+        return true;
     }
 
     /**
-     * 获取员工的用户数据
-     * @param {string} employeeId - 员工ID
-     * @returns {Object|null} 用户数据
+     * 获取视频数据
      */
-    getEmployeeUserData(employeeId) {
-        const userData = this.getUserData();
-        return userData[employeeId] || null;
+    async getVideoData(employeeId, limit = 50) {
+        const sql = `
+            SELECT * FROM video_data 
+            WHERE employee_id = ? 
+            ORDER BY data_date DESC, create_time DESC 
+            LIMIT ?
+        `;
+        return await this.query(sql, [employeeId, limit]);
+    }
+
+    // ==================== 同步记录管理 ====================
+
+    /**
+     * 创建同步记录
+     */
+    async createSyncRecord(employeeId = null, syncType = 'manual') {
+        const sql = `
+            INSERT INTO sync_records (employee_id, sync_type, sync_status)
+            VALUES (?, ?, 'running')
+        `;
+        const result = await this.query(sql, [employeeId, syncType]);
+        return result.insertId;
     }
 
     /**
-     * 移除员工的用户数据
-     * @param {string} employeeId - 员工ID
+     * 更新同步记录
      */
-    removeUserData(employeeId) {
-        const userData = this.getUserData();
-        delete userData[employeeId];
-        this.saveUserData(userData);
-    }
+    async updateSyncRecord(recordId, updates) {
+        const allowedFields = ['sync_status', 'end_time', 'success_count', 'failed_count', 'error_message'];
+        const updateFields = [];
+        const values = [];
 
-    // ==================== 同步历史管理 ====================
+        Object.keys(updates).forEach(key => {
+            if (allowedFields.includes(key)) {
+                updateFields.push(`${key} = ?`);
+                values.push(updates[key]);
+            }
+        });
+
+        if (updateFields.length === 0) {
+            return false;
+        }
+
+        values.push(recordId);
+        const sql = `UPDATE sync_records SET ${updateFields.join(', ')} WHERE id = ?`;
+        
+        await this.query(sql, values);
+        return true;
+    }
 
     /**
      * 获取同步历史
-     * @returns {Array} 同步历史列表
      */
-    getSyncHistory() {
-        try {
-            const data = localStorage.getItem(this.storageKeys.syncHistory);
-            return data ? JSON.parse(data) : [];
-        } catch (error) {
-            console.error('获取同步历史失败:', error);
-            return [];
-        }
+    async getSyncHistory(limit = 20) {
+        const sql = `
+            SELECT sr.*, e.name as employee_name
+            FROM sync_records sr
+            LEFT JOIN employees e ON sr.employee_id = e.id
+            ORDER BY sr.start_time DESC
+            LIMIT ?
+        `;
+        return await this.query(sql, [limit]);
+    }
+
+    // ==================== 系统配置管理 ====================
+
+    /**
+     * 获取配置
+     */
+    async getConfig(key) {
+        const sql = 'SELECT config_value FROM system_config WHERE config_key = ?';
+        const rows = await this.query(sql, [key]);
+        return rows.length > 0 ? rows[0].config_value : null;
     }
 
     /**
-     * 保存同步历史
-     * @param {Array} history - 同步历史列表
+     * 设置配置
      */
-    saveSyncHistory(history) {
-        try {
-            localStorage.setItem(this.storageKeys.syncHistory, JSON.stringify(history));
-        } catch (error) {
-            console.error('保存同步历史失败:', error);
-        }
+    async setConfig(key, value) {
+        const sql = `
+            INSERT INTO system_config (config_key, config_value)
+            VALUES (?, ?)
+            ON DUPLICATE KEY UPDATE config_value = VALUES(config_value)
+        `;
+        await this.query(sql, [key, value]);
+        return true;
     }
 
     /**
-     * 添加同步记录
-     * @param {Object} syncRecord - 同步记录
+     * 更新最后同步时间
      */
-    addSyncRecord(syncRecord) {
-        const history = this.getSyncHistory();
-        
-        const record = {
-            id: this.generateId(),
-            timestamp: new Date().toISOString(),
-            ...syncRecord
-        };
-
-        history.unshift(record); // 添加到开头
-        
-        // 只保留最近100条记录
-        if (history.length > 100) {
-            history.splice(100);
-        }
-
-        this.saveSyncHistory(history);
+    async updateLastSyncTime() {
+        const now = new Date().toISOString();
+        return await this.setConfig('last_sync_time', now);
     }
 
     /**
      * 获取最后同步时间
-     * @returns {string|null} 最后同步时间
      */
-    getLastSyncTime() {
-        const history = this.getSyncHistory();
-        if (history.length > 0) {
-            return history[0].timestamp;
-        }
-        return null;
+    async getLastSyncTime() {
+        const time = await this.getConfig('last_sync_time');
+        return time ? new Date(time) : null;
     }
 
-    // ==================== 工具方法 ====================
+    // ==================== 数据统计 ====================
 
     /**
-     * 生成唯一ID
-     * @returns {string} 唯一ID
+     * 获取数据统计
      */
-    generateId() {
-        return 'id_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    async getStatistics() {
+        const stats = {};
+
+        // 员工总数
+        const employeeCount = await this.query('SELECT COUNT(*) as count FROM employees');
+        stats.totalEmployees = employeeCount[0].count;
+
+        // 已授权员工数
+        const authorizedCount = await this.query(
+            "SELECT COUNT(*) as count FROM employees WHERE auth_status = 'authorized'"
+        );
+        stats.authorizedEmployees = authorizedCount[0].count;
+
+        // 今日数据更新数
+        const todayUpdates = await this.query(
+            'SELECT COUNT(*) as count FROM user_data WHERE data_date = CURDATE()'
+        );
+        stats.todayUpdates = todayUpdates[0].count;
+
+        // 最后同步时间
+        stats.lastSyncTime = await this.getLastSyncTime();
+
+        return stats;
+    }
+
+    // ==================== 数据导入导出 ====================
+
+    /**
+     * 导出所有数据
+     */
+    async exportAllData() {
+        const data = {
+            employees: await this.getAllEmployees(),
+            auth_tokens: await this.query('SELECT * FROM auth_tokens'),
+            user_data: await this.query('SELECT * FROM user_data ORDER BY data_date DESC'),
+            video_data: await this.query('SELECT * FROM video_data ORDER BY data_date DESC LIMIT 1000'),
+            sync_records: await this.getSyncHistory(100),
+            system_config: await this.query('SELECT * FROM system_config'),
+            export_time: new Date().toISOString()
+        };
+        
+        return data;
     }
 
     /**
      * 清空所有数据
      */
-    clearAllData() {
-        Object.values(this.storageKeys).forEach(key => {
-            localStorage.removeItem(key);
-        });
-        this.initDatabase();
+    async clearAllData() {
+        const tables = ['sync_records', 'video_data', 'user_data', 'auth_tokens', 'employees'];
+        
+        for (const table of tables) {
+            await this.query(`DELETE FROM ${table}`);
+        }
+        
+        // 重置系统配置
+        await this.setConfig('last_sync_time', '');
+        
+        return true;
     }
 
     /**
-     * 导出数据
-     * @returns {Object} 所有数据
+     * 关闭数据库连接
      */
-    exportData() {
-        return {
-            employees: this.getEmployees(),
-            authTokens: this.getAuthTokens(),
-            syncHistory: this.getSyncHistory(),
-            userData: this.getUserData(),
-            exportTime: new Date().toISOString()
-        };
-    }
-
-    /**
-     * 导入数据
-     * @param {Object} data - 要导入的数据
-     * @returns {Object} 导入结果
-     */
-    importData(data) {
-        try {
-            if (data.employees) this.saveEmployees(data.employees);
-            if (data.authTokens) this.saveAuthTokens(data.authTokens);
-            if (data.syncHistory) this.saveSyncHistory(data.syncHistory);
-            if (data.userData) this.saveUserData(data.userData);
-
-            return {
-                success: true,
-                message: '数据导入成功'
-            };
-        } catch (error) {
-            console.error('导入数据失败:', error);
-            return {
-                success: false,
-                message: '导入数据失败: ' + error.message
-            };
+    async close() {
+        if (this.pool) {
+            await this.dbConfig.closePool();
+            this.isInitialized = false;
         }
     }
 }
 
-// 导出类供其他模块使用
+// 创建全局实例
+const dbManager = new DatabaseManager();
+
+// 浏览器环境兼容性处理
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = DatabaseManager;
-} else {
+} else if (typeof window !== 'undefined') {
     window.DatabaseManager = DatabaseManager;
+    window.dbManager = dbManager;
 }

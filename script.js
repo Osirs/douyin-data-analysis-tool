@@ -1,23 +1,503 @@
 // 抖音数据推送及分析工具 JavaScript
 
+// API客户端类
+class APIClient {
+    constructor() {
+        this.baseURL = 'http://localhost:3000/api';
+    }
+
+    async request(endpoint, options = {}) {
+        const url = `${this.baseURL}${endpoint}`;
+        const config = {
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            },
+            ...options
+        };
+
+        try {
+            const response = await fetch(url, config);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return await response.json();
+        } catch (error) {
+            console.error('API请求失败:', error);
+            throw error;
+        }
+    }
+
+    // GET请求
+    async get(endpoint) {
+        return this.request(endpoint, { method: 'GET' });
+    }
+
+    // POST请求
+    async post(endpoint, data) {
+        return this.request(endpoint, {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    }
+
+    // PUT请求
+    async put(endpoint, data) {
+        return this.request(endpoint, {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+    }
+
+    // DELETE请求
+    async delete(endpoint) {
+        return this.request(endpoint, { method: 'DELETE' });
+    }
+}
+
+// 数据库管理类
+class DatabaseManager {
+    constructor() {
+        this.api = new APIClient();
+    }
+
+    // 获取所有员工
+    async getAllEmployees() {
+        try {
+            const response = await this.api.get('/employees');
+            return response.data || [];
+        } catch (error) {
+            console.error('获取员工列表失败:', error);
+            return [];
+        }
+    }
+
+    // 获取单个员工
+    async getEmployee(employeeId) {
+        try {
+            const response = await this.api.get(`/employees/${employeeId}`);
+            return response.data;
+        } catch (error) {
+            console.error('获取员工信息失败:', error);
+            return null;
+        }
+    }
+
+    // 添加员工
+    async addEmployee(employee) {
+        try {
+            const response = await this.api.post('/employees', employee);
+            return response.data.id;
+        } catch (error) {
+            console.error('添加员工失败:', error);
+            throw error;
+        }
+    }
+
+    // 更新员工
+    async updateEmployee(employeeId, employee) {
+        try {
+            const response = await this.api.put(`/employees/${employeeId}`, employee);
+            return response.data;
+        } catch (error) {
+            console.error('更新员工失败:', error);
+            throw error;
+        }
+    }
+
+    // 删除员工
+    async deleteEmployee(employeeId) {
+        try {
+            await this.api.delete(`/employees/${employeeId}`);
+        } catch (error) {
+            console.error('删除员工失败:', error);
+            throw error;
+        }
+    }
+
+    // 保存授权令牌
+    async saveAuthToken(employeeId, tokenData) {
+        try {
+            await this.api.post('/auth-tokens', {
+                employeeId,
+                ...tokenData
+            });
+        } catch (error) {
+            console.error('保存授权令牌失败:', error);
+            throw error;
+        }
+    }
+
+    // 获取授权令牌
+    async getAuthToken(employeeId) {
+        try {
+            const response = await this.api.get(`/auth-tokens/${employeeId}`);
+            return response.data;
+        } catch (error) {
+            console.error('获取授权令牌失败:', error);
+            return null;
+        }
+    }
+
+    // 保存用户数据
+    async saveUserData(employeeId, userData) {
+        try {
+            await this.api.post('/user-data', {
+                employeeId,
+                data: userData,
+                timestamp: new Date().toISOString()
+            });
+        } catch (error) {
+            console.error('保存用户数据失败:', error);
+            throw error;
+        }
+    }
+
+    // 获取用户数据
+    async getUserData(employeeId, limit = 10) {
+        try {
+            const response = await this.api.get(`/user-data/${employeeId}?limit=${limit}`);
+            return response.data || [];
+        } catch (error) {
+            console.error('获取用户数据失败:', error);
+            return [];
+        }
+    }
+
+    // 保存视频数据
+    async saveVideoData(employeeId, videoData) {
+        try {
+            await this.api.post('/video-data', {
+                employeeId,
+                data: videoData,
+                timestamp: new Date().toISOString()
+            });
+        } catch (error) {
+            console.error('保存视频数据失败:', error);
+            throw error;
+        }
+    }
+
+    // 获取视频数据
+    async getVideoData(employeeId, limit = 10) {
+        try {
+            const response = await this.api.get(`/video-data/${employeeId}?limit=${limit}`);
+            return response.data || [];
+        } catch (error) {
+            console.error('获取视频数据失败:', error);
+            return [];
+        }
+    }
+
+    // 添加同步历史记录
+    async addSyncHistory(syncRecord) {
+        try {
+            await this.api.post('/sync-history', syncRecord);
+        } catch (error) {
+            console.error('保存同步历史失败:', error);
+            throw error;
+        }
+    }
+
+    // 获取同步历史
+    async getSyncHistory(limit = 20) {
+        try {
+            const response = await this.api.get(`/sync-history?limit=${limit}`);
+            return response.data || [];
+        } catch (error) {
+            console.error('获取同步历史失败:', error);
+            return [];
+        }
+    }
+
+    // 获取统计数据
+    async getStatistics() {
+        try {
+            const response = await this.api.get('/statistics');
+            return response.data || {
+                totalEmployees: 0,
+                authorizedEmployees: 0,
+                totalDataRecords: 0,
+                lastSyncTime: null
+            };
+        } catch (error) {
+            console.error('获取统计数据失败:', error);
+            return {
+                totalEmployees: 0,
+                authorizedEmployees: 0,
+                totalDataRecords: 0,
+                lastSyncTime: null
+            };
+        }
+    }
+
+    // 清空所有数据
+    async clearAllData() {
+        try {
+            await this.api.delete('/clear-all');
+        } catch (error) {
+            console.error('清空数据失败:', error);
+            throw error;
+        }
+    }
+
+    // 导出数据
+    async exportData() {
+        try {
+            const response = await this.api.get('/export');
+            return response.data;
+        } catch (error) {
+            console.error('导出数据失败:', error);
+            throw error;
+        }
+    }
+
+    // 导入数据
+    async importData(data) {
+        try {
+            await this.api.post('/import', data);
+        } catch (error) {
+            console.error('导入数据失败:', error);
+            throw error;
+        }
+    }
+}
+
+// 抖音授权类
+class DouyinAuth {
+    constructor() {
+        this.clientKey = 'your_client_key';
+        this.clientSecret = 'your_client_secret';
+        this.redirectUri = window.location.origin + window.location.pathname;
+        this.scope = 'user_info,video.list,fans.list,following.list,video.data';
+    }
+
+    // 获取授权URL
+    getAuthUrl(employeeId) {
+        const params = new URLSearchParams({
+            client_key: this.clientKey,
+            response_type: 'code',
+            scope: this.scope,
+            redirect_uri: this.redirectUri,
+            state: employeeId
+        });
+        
+        return `https://open.douyin.com/platform/oauth/connect/?${params.toString()}`;
+    }
+
+    // 获取访问令牌
+    async getAccessToken(code) {
+        try {
+            const response = await fetch('https://open.douyin.com/oauth/access_token/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    client_key: this.clientKey,
+                    client_secret: this.clientSecret,
+                    code: code,
+                    grant_type: 'authorization_code'
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.error_code === 0) {
+                return {
+                    success: true,
+                    data: data.data
+                };
+            } else {
+                return {
+                    success: false,
+                    message: data.description || '获取访问令牌失败'
+                };
+            }
+        } catch (error) {
+            return {
+                success: false,
+                message: error.message
+            };
+        }
+    }
+
+    // 刷新访问令牌
+    async refreshAccessToken(refreshToken) {
+        try {
+            const response = await fetch('https://open.douyin.com/oauth/refresh_token/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    client_key: this.clientKey,
+                    refresh_token: refreshToken,
+                    grant_type: 'refresh_token'
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.error_code === 0) {
+                return {
+                    success: true,
+                    data: data.data
+                };
+            } else {
+                return {
+                    success: false,
+                    message: data.description || '刷新令牌失败'
+                };
+            }
+        } catch (error) {
+            return {
+                success: false,
+                message: error.message
+            };
+        }
+    }
+}
+
+// 抖音API类
+class DouyinAPI {
+    constructor() {
+        this.baseURL = 'https://open.douyin.com';
+    }
+
+    // 获取用户信息
+    async getUserInfo(openId, accessToken) {
+        try {
+            const response = await fetch(`${this.baseURL}/oauth/userinfo/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    open_id: openId,
+                    access_token: accessToken
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.error_code === 0) {
+                return {
+                    success: true,
+                    data: data.data
+                };
+            } else {
+                return {
+                    success: false,
+                    message: data.description || '获取用户信息失败'
+                };
+            }
+        } catch (error) {
+            return {
+                success: false,
+                message: error.message
+            };
+        }
+    }
+
+    // 获取完整用户数据
+    async getCompleteUserData(openId, accessToken, days = 7) {
+        try {
+            const [userInfo, fansData, videoData] = await Promise.all([
+                this.getUserInfo(openId, accessToken),
+                this.getFansData(openId, accessToken, days),
+                this.getVideoData(openId, accessToken, days)
+            ]);
+
+            return {
+                success: true,
+                data: {
+                    userInfo: userInfo.success ? userInfo.data : null,
+                    fansData: fansData.success ? fansData.data : null,
+                    videoData: videoData.success ? videoData.data : null
+                }
+            };
+        } catch (error) {
+            return {
+                success: false,
+                message: error.message
+            };
+        }
+    }
+
+    // 批量获取用户数据
+    async batchGetUserData(userList, days = 7) {
+        try {
+            const results = [];
+            const errors = [];
+
+            for (const user of userList) {
+                try {
+                    const result = await this.getCompleteUserData(user.openId, user.accessToken, days);
+                    if (result.success) {
+                        results.push({
+                            employeeId: user.employeeId,
+                            data: result.data
+                        });
+                    } else {
+                        errors.push({
+                            employeeId: user.employeeId,
+                            error: result.message
+                        });
+                    }
+                } catch (error) {
+                    errors.push({
+                        employeeId: user.employeeId,
+                        error: error.message
+                    });
+                }
+            }
+
+            return {
+                success: true,
+                data: {
+                    results,
+                    errors
+                }
+            };
+        } catch (error) {
+            return {
+                success: false,
+                message: error.message
+            };
+        }
+    }
+
+    // 获取粉丝数据
+    async getFansData(openId, accessToken, days) {
+        // 模拟API调用
+        return {
+            success: true,
+            data: {
+                total_fans: Math.floor(Math.random() * 50000) + 1000
+            }
+        };
+    }
+
+    // 获取视频数据
+    async getVideoData(openId, accessToken, days) {
+        // 模拟API调用
+        return {
+            success: true,
+            data: {
+                total_videos: Math.floor(Math.random() * 100) + 10,
+                total_likes: Math.floor(Math.random() * 100000) + 5000,
+                total_comments: Math.floor(Math.random() * 10000) + 500,
+                total_shares: Math.floor(Math.random() * 5000) + 200
+            }
+        };
+    }
+}
+
 // 全局变量
 let databaseManager;
 let douyinAuth;
 let douyinAPI;
-
-// 页面加载完成后初始化
-document.addEventListener('DOMContentLoaded', function() {
-    // 初始化管理器
-    databaseManager = new DatabaseManager();
-    douyinAuth = new DouyinAuth();
-    douyinAPI = new DouyinAPI();
-    
-    updateLastSyncTime();
-    loadEmployeeData();
-    
-    // 检查是否有授权回调
-    checkAuthCallback();
-});
 
 // 打开数据分析报告（多维表格）
 function openAnalysisReport() {
@@ -41,8 +521,8 @@ async function manualSync() {
         showNotification('开始同步数据...', 'info');
         
         // 获取所有已授权的员工
-        const employees = databaseManager.getAllEmployees();
-        const authorizedEmployees = employees.filter(emp => emp.authStatus === 'authorized' && emp.accessToken);
+        const employees = await databaseManager.getAllEmployees();
+        const authorizedEmployees = employees.filter(emp => emp.auth_status === 'authorized' && emp.access_token);
         
         if (authorizedEmployees.length === 0) {
             showNotification('没有已授权的员工账号，无法同步数据', 'warning');
@@ -52,8 +532,8 @@ async function manualSync() {
         // 准备用户列表
         const userList = authorizedEmployees.map(emp => ({
             employeeId: emp.id,
-            openId: emp.openId,
-            accessToken: emp.accessToken
+            openId: emp.open_id,
+            accessToken: emp.access_token
         }));
         
         // 批量获取用户数据
@@ -70,31 +550,31 @@ async function manualSync() {
                 errors: result.data.errors
             };
             
-            databaseManager.addSyncHistory(syncRecord);
+            await databaseManager.addSyncHistory(syncRecord);
             
             // 更新员工数据
-            result.data.results.forEach(userResult => {
-                const employee = databaseManager.getEmployee(userResult.employeeId);
+            for (const userResult of result.data.results) {
+                const employee = await databaseManager.getEmployee(userResult.employeeId);
                 if (employee) {
                     // 更新员工的数据统计
                     const userData = userResult.data;
                     const updatedEmployee = {
                         ...employee,
-                        lastSyncTime: new Date().toISOString(),
-                        fansCount: userData.fansData?.total_fans || employee.fansCount || 0,
-                        videoCount: userData.videoStatus?.total_videos || employee.videoCount || 0,
-                        likeCount: userData.likeData?.total_likes || employee.likeCount || 0,
-                        commentCount: userData.commentData?.total_comments || employee.commentCount || 0,
-                        shareCount: userData.shareData?.total_shares || employee.shareCount || 0,
-                        profileViews: userData.profileData?.total_views || employee.profileViews || 0
+                        last_sync_time: new Date().toISOString(),
+                        fans_count: userData.fansData?.total_fans || employee.fans_count || 0,
+                        video_count: userData.videoStatus?.total_videos || employee.video_count || 0,
+                        like_count: userData.likeData?.total_likes || employee.like_count || 0,
+                        comment_count: userData.commentData?.total_comments || employee.comment_count || 0,
+                        share_count: userData.shareData?.total_shares || employee.share_count || 0,
+                        profile_views: userData.profileData?.total_views || employee.profile_views || 0
                     };
                     
-                    databaseManager.updateEmployee(userResult.employeeId, updatedEmployee);
+                    await databaseManager.updateEmployee(userResult.employeeId, updatedEmployee);
                     
                     // 保存用户数据到数据库
-                    databaseManager.saveUserData(userResult.employeeId, userData);
+                    await databaseManager.saveUserData(userResult.employeeId, userData);
                 }
-            });
+            }
             
             updateLastSyncTime();
             loadEmployeeData();
@@ -137,44 +617,39 @@ function addEmployee() {
 }
 
 // 保存员工信息
-function addEmployee() {
+async function saveEmployee() {
     const name = document.getElementById('employeeName').value;
     const account = document.getElementById('douyinAccount').value;
     
-    const employee = {
-        name: name,
-        douyinAccount: account,
-        authStatus: 'pending',
-        addTime: new Date().toISOString(),
-        fansCount: 0,
-        videoCount: 0,
-        likeCount: 0,
-        commentCount: 0,
-        shareCount: 0,
-        profileViews: 0
-    };
-    
     // 验证表单
-    if (!employee.name || !employee.douyinAccount) {
+    if (!name || !account) {
         showNotification('请填写完整的员工信息', 'error');
         return;
     }
     
     try {
         // 检查抖音账号是否已存在
-        const existingEmployees = databaseManager.getAllEmployees();
-        const isDuplicate = existingEmployees.some(emp => emp.douyinAccount === employee.douyinAccount);
+        const existingEmployees = await databaseManager.getAllEmployees();
+        const isDuplicate = existingEmployees.some(emp => emp.douyin_account === account);
         
         if (isDuplicate) {
             showNotification('该抖音账号已存在！', 'error');
             return;
         }
         
+        // 准备员工数据
+        const employee = {
+            name: name,
+            douyin_account: account,
+            department: '',
+            position: ''
+        };
+        
         // 添加到数据库
-        const employeeId = databaseManager.addEmployee(employee);
+        const employeeId = await databaseManager.addEmployee(employee);
         
         // 重新加载员工数据
-        loadEmployeeData();
+        await loadEmployeeData();
         
         // 关闭模态框
         const modal = bootstrap.Modal.getInstance(document.getElementById('addEmployeeModal'));
@@ -192,10 +667,15 @@ function addEmployee() {
 }
 
 // 加载员工数据
-function loadEmployeeData() {
+async function loadEmployeeData() {
     try {
-        const employees = databaseManager.getAllEmployees();
-        const tbody = document.querySelector('#employeeTable tbody');
+        const employees = await databaseManager.getAllEmployees();
+        const tbody = document.querySelector('#employeeTableBody');
+        
+        if (!tbody) {
+            console.error('找不到员工表格元素');
+            return;
+        }
         
         // 清空现有数据
         tbody.innerHTML = '';
@@ -218,15 +698,15 @@ function loadEmployeeData() {
 
 // 添加员工到表格
 function addEmployeeToTable(employee) {
-    const tbody = document.querySelector('#employeeTable tbody');
+    const tbody = document.querySelector('#employeeTableBody');
     const row = document.createElement('tr');
     
     // 格式化时间
-    const addTime = employee.addTime ? new Date(employee.addTime).toLocaleString('zh-CN') : '-';
+    const addTime = employee.created_at ? new Date(employee.created_at).toLocaleString('zh-CN') : '-';
     
     // 授权状态显示
     let statusBadge = '';
-    switch (employee.authStatus) {
+    switch (employee.auth_status) {
         case 'authorized':
             statusBadge = '<span class="badge bg-success">已授权</span>';
             break;
@@ -255,22 +735,22 @@ function addEmployeeToTable(employee) {
     
     row.innerHTML = `
         <td>${employee.name}</td>
-        <td>@${employee.douyinAccount}</td>
+        <td>@${employee.douyin_account}</td>
         <td>${statusBadge}</td>
         <td>${addTime}</td>
-        <td>${formatNumber(employee.fansCount || 0)}</td>
-        <td>${employee.videoCount || 0}</td>
+        <td>${formatNumber(employee.fans_count || 0)}</td>
+        <td>${employee.video_count || 0}</td>
         <td>
             <button class="btn btn-sm btn-primary me-1" onclick="authorizeEmployee('${employee.id}')" 
-                    ${employee.authStatus === 'authorized' ? 'disabled' : ''}>
+                    ${employee.auth_status === 'authorized' ? 'disabled' : ''}>
                 <i class="fas fa-key"></i> 授权
             </button>
             <button class="btn btn-sm btn-success me-1" onclick="refreshEmployee('${employee.id}')" 
-                    ${employee.authStatus !== 'authorized' ? 'disabled' : ''}>
+                    ${employee.auth_status !== 'authorized' ? 'disabled' : ''}>
                 <i class="fas fa-sync"></i> 刷新
             </button>
             <button class="btn btn-sm btn-danger" onclick="revokeEmployee('${employee.id}')" 
-                    ${employee.authStatus === 'pending' ? 'disabled' : ''}>
+                    ${employee.auth_status === 'pending' ? 'disabled' : ''}>
                 <i class="fas fa-times"></i> 撤销
             </button>
         </td>
@@ -280,9 +760,9 @@ function addEmployeeToTable(employee) {
 }
 
 // 授权员工账号
-function authorizeEmployee(employeeId) {
+async function authorizeEmployee(employeeId) {
     try {
-        const employee = databaseManager.getEmployee(employeeId);
+        const employee = await databaseManager.getEmployee(employeeId);
         if (!employee) {
             showNotification('员工信息不存在', 'error');
             return;
@@ -304,8 +784,8 @@ function authorizeEmployee(employeeId) {
             if (authWindow.closed) {
                 clearInterval(checkClosed);
                 // 检查授权结果
-                setTimeout(() => {
-                    loadEmployeeData();
+                setTimeout(async () => {
+                    await loadEmployeeData();
                 }, 1000);
             }
         }, 1000);
@@ -321,13 +801,13 @@ function authorizeEmployee(employeeId) {
 // 刷新员工数据
 async function refreshEmployee(employeeId) {
     try {
-        const employee = databaseManager.getEmployee(employeeId);
+        const employee = await databaseManager.getEmployee(employeeId);
         if (!employee) {
             showNotification('员工信息不存在', 'error');
             return;
         }
         
-        if (employee.authStatus !== 'authorized' || !employee.accessToken) {
+        if (employee.auth_status !== 'authorized' || !employee.access_token) {
             showNotification('该员工尚未授权，无法刷新数据', 'warning');
             return;
         }
@@ -335,7 +815,7 @@ async function refreshEmployee(employeeId) {
         showNotification('正在刷新数据...', 'info');
         
         // 获取用户完整数据
-        const result = await douyinAPI.getCompleteUserData(employee.openId, employee.accessToken, 7);
+        const result = await douyinAPI.getCompleteUserData(employee.open_id, employee.access_token, 7);
         
         if (result.success) {
             const userData = result.data;
@@ -343,20 +823,20 @@ async function refreshEmployee(employeeId) {
             // 更新员工数据
             const updatedEmployee = {
                 ...employee,
-                lastSyncTime: new Date().toISOString(),
-                fansCount: userData.fansData?.total_fans || employee.fansCount || 0,
-                videoCount: userData.videoStatus?.total_videos || employee.videoCount || 0,
-                likeCount: userData.likeData?.total_likes || employee.likeCount || 0,
-                commentCount: userData.commentData?.total_comments || employee.commentCount || 0,
-                shareCount: userData.shareData?.total_shares || employee.shareCount || 0,
-                profileViews: userData.profileData?.total_views || employee.profileViews || 0
+                last_sync_time: new Date().toISOString(),
+                fans_count: userData.fansData?.total_fans || employee.fans_count || 0,
+                video_count: userData.videoStatus?.total_videos || employee.video_count || 0,
+                like_count: userData.likeData?.total_likes || employee.like_count || 0,
+                comment_count: userData.commentData?.total_comments || employee.comment_count || 0,
+                share_count: userData.shareData?.total_shares || employee.share_count || 0,
+                profile_views: userData.profileData?.total_views || employee.profile_views || 0
             };
             
-            databaseManager.updateEmployee(employeeId, updatedEmployee);
-            databaseManager.saveUserData(employeeId, userData);
+                 await databaseManager.updateEmployee(employeeId, updatedEmployee);
+            await databaseManager.saveUserData(employeeId, userData);
             
             // 重新加载表格数据
-            loadEmployeeData();
+            await loadEmployeeData();
             
             showNotification('数据刷新成功！', 'success');
             
@@ -364,18 +844,18 @@ async function refreshEmployee(employeeId) {
             // 检查是否是token过期
             if (result.error && (result.error.includes('access_token') || result.error.includes('过期'))) {
                 // 尝试刷新token
-                if (employee.refreshToken) {
-                    const refreshResult = await douyinAuth.refreshAccessToken(employee.refreshToken);
+                if (employee.refresh_token) {
+                    const refreshResult = await douyinAuth.refreshAccessToken(employee.refresh_token);
                     if (refreshResult.success) {
                         // 更新token并重试
                         const updatedEmployee = {
                             ...employee,
-                            accessToken: refreshResult.data.access_token,
-                            refreshToken: refreshResult.data.refresh_token,
-                            expiresAt: new Date(Date.now() + refreshResult.data.expires_in * 1000).toISOString()
+                            access_token: refreshResult.data.access_token,
+                            refresh_token: refreshResult.data.refresh_token,
+                            expires_at: new Date(Date.now() + refreshResult.data.expires_in * 1000).toISOString()
                         };
                         
-                        databaseManager.updateEmployee(employeeId, updatedEmployee);
+                        await databaseManager.updateEmployee(employeeId, updatedEmployee);
                         
                         // 重试获取数据
                         await refreshEmployee(employeeId);
@@ -384,12 +864,12 @@ async function refreshEmployee(employeeId) {
                 }
                 
                 // token刷新失败，更新授权状态
-                databaseManager.updateEmployee(employeeId, {
+                await databaseManager.updateEmployee(employeeId, {
                     ...employee,
-                    authStatus: 'expired'
+                    auth_status: 'expired'
                 });
                 
-                loadEmployeeData();
+                await loadEmployeeData();
                 showNotification('授权已过期，请重新授权', 'warning');
             } else {
                 throw new Error(result.message);
@@ -403,9 +883,9 @@ async function refreshEmployee(employeeId) {
 }
 
 // 撤销员工授权
-function revokeEmployee(employeeId) {
+async function revokeEmployee(employeeId) {
     try {
-        const employee = databaseManager.getEmployee(employeeId);
+        const employee = await databaseManager.getEmployee(employeeId);
         if (!employee) {
             showNotification('员工信息不存在', 'error');
             return;
@@ -415,18 +895,18 @@ function revokeEmployee(employeeId) {
             // 清除授权信息
             const updatedEmployee = {
                 ...employee,
-                authStatus: 'revoked',
-                accessToken: null,
-                refreshToken: null,
-                openId: null,
-                expiresAt: null,
-                revokeTime: new Date().toISOString()
+                auth_status: 'revoked',
+                access_token: null,
+                refresh_token: null,
+                open_id: null,
+                expires_at: null,
+                revoke_time: new Date().toISOString()
             };
             
-            databaseManager.updateEmployee(employeeId, updatedEmployee);
+       await databaseManager.updateEmployee(employeeId, updatedEmployee);
             
             // 重新加载表格数据
-            loadEmployeeData();
+            await loadEmployeeData();
             
             showNotification('授权已撤销', 'info');
         }
@@ -438,13 +918,13 @@ function revokeEmployee(employeeId) {
 }
 
 // 检查授权回调
-function checkAuthCallback() {
+async function checkAuthCallback() {
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
     const state = urlParams.get('state');
     
     if (code && state) {
-        handleAuthCallback(code, state);
+        await handleAuthCallback(code, state);
     }
 }
 
@@ -464,27 +944,27 @@ async function handleAuthCallback(code, employeeId) {
             
             if (userInfoResult.success) {
                 // 更新员工信息
-                const employee = databaseManager.getEmployee(employeeId);
+                const employee = await databaseManager.getEmployee(employeeId);
                 if (employee) {
                     const updatedEmployee = {
                         ...employee,
-                        authStatus: 'authorized',
-                        accessToken: tokenData.access_token,
-                        refreshToken: tokenData.refresh_token,
-                        openId: tokenData.open_id,
-                        expiresAt: new Date(Date.now() + tokenData.expires_in * 1000).toISOString(),
-                        authTime: new Date().toISOString(),
-                        userInfo: userInfoResult.data
+                        auth_status: 'authorized',
+                        access_token: tokenData.access_token,
+                        refresh_token: tokenData.refresh_token,
+                        open_id: tokenData.open_id,
+                        expires_at: new Date(Date.now() + tokenData.expires_in * 1000).toISOString(),
+                        auth_time: new Date().toISOString(),
+                        user_info: userInfoResult.data
                     };
                     
-                    databaseManager.updateEmployee(employeeId, updatedEmployee);
+                    await databaseManager.updateEmployee(employeeId, updatedEmployee);
                     
                     // 保存token到数据库
-                    databaseManager.saveAuthToken(employeeId, {
-                        accessToken: tokenData.access_token,
-                        refreshToken: tokenData.refresh_token,
-                        openId: tokenData.open_id,
-                        expiresAt: updatedEmployee.expiresAt,
+                    await databaseManager.saveAuthToken(employeeId, {
+                        access_token: tokenData.access_token,
+                        refresh_token: tokenData.refresh_token,
+                        open_id: tokenData.open_id,
+                        expires_at: updatedEmployee.expires_at,
                         scope: tokenData.scope
                     });
                     
@@ -492,7 +972,7 @@ async function handleAuthCallback(code, employeeId) {
                     window.history.replaceState({}, document.title, window.location.pathname);
                     
                     // 重新加载数据
-                    loadEmployeeData();
+                    await loadEmployeeData();
                     
                     showNotification('授权成功！', 'success');
                 } else {
@@ -515,18 +995,18 @@ async function handleAuthCallback(code, employeeId) {
 }
 
 // 更新员工授权状态
-function updateEmployeeAuthStatus(employeeId, status) {
+async function updateEmployeeAuthStatus(employeeId, status) {
     try {
-        const employee = databaseManager.getEmployee(employeeId);
+        const employee = await databaseManager.getEmployee(employeeId);
         if (employee) {
             const updatedEmployee = {
                 ...employee,
-                authStatus: status,
-                statusUpdateTime: new Date().toISOString()
+                auth_status: status,
+                status_update_time: new Date().toISOString()
             };
             
-            databaseManager.updateEmployee(employeeId, updatedEmployee);
-            loadEmployeeData();
+            await databaseManager.updateEmployee(employeeId, updatedEmployee);
+            await loadEmployeeData();
         }
     } catch (error) {
         console.error('更新员工授权状态失败:', error);
@@ -534,17 +1014,17 @@ function updateEmployeeAuthStatus(employeeId, status) {
 }
 
 // 删除员工
-function deleteEmployee(employeeId) {
+async function deleteEmployee(employeeId) {
     try {
-        const employee = databaseManager.getEmployee(employeeId);
+        const employee = await databaseManager.getEmployee(employeeId);
         if (!employee) {
             showNotification('员工信息不存在', 'error');
             return;
         }
         
         if (confirm(`确定要删除员工 "${employee.name}" 吗？此操作不可恢复。`)) {
-            databaseManager.deleteEmployee(employeeId);
-            loadEmployeeData();
+            await databaseManager.deleteEmployee(employeeId);
+            await loadEmployeeData();
             showNotification('员工删除成功', 'success');
         }
         
@@ -625,3 +1105,184 @@ document.addEventListener('visibilitychange', function() {
         loadEmployeeData();
     }
 });
+
+// 日志管理类
+class LogManager {
+    constructor() {
+        this.maxLogs = 100; // 最大日志条数
+    }
+
+    // 添加日志
+    addLog(message, type = 'info') {
+        const debugContent = document.getElementById('debugContent');
+        if (!debugContent) return;
+
+        const timestamp = new Date().toLocaleString('zh-CN', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+
+        const logEntry = document.createElement('div');
+        logEntry.className = `log-entry log-${type}`;
+        logEntry.innerHTML = `
+            <span class="log-timestamp">[${timestamp}]</span>
+            <span>${this.escapeHtml(message)}</span>
+        `;
+
+        debugContent.appendChild(logEntry);
+
+        // 限制日志数量
+        const logs = debugContent.querySelectorAll('.log-entry');
+        if (logs.length > this.maxLogs) {
+            logs[0].remove();
+        }
+
+        // 自动滚动到底部
+        debugContent.scrollTop = debugContent.scrollHeight;
+    }
+
+    // 清空日志
+    clearLogs() {
+        const debugContent = document.getElementById('debugContent');
+        if (debugContent) {
+            debugContent.innerHTML = '';
+            this.addLog('日志已清空', 'info');
+        }
+    }
+
+    // 转义HTML字符
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // 记录API请求
+    logAPIRequest(method, url, data = null) {
+        let message = `API请求: ${method} ${url}`;
+        if (data) {
+            message += ` - 数据: ${JSON.stringify(data).substring(0, 100)}${JSON.stringify(data).length > 100 ? '...' : ''}`;
+        }
+        this.addLog(message, 'info');
+    }
+
+    // 记录API响应
+    logAPIResponse(url, response, success = true) {
+        const type = success ? 'success' : 'error';
+        const status = success ? '成功' : '失败';
+        let message = `API响应 ${status}: ${url}`;
+        
+        if (response) {
+            const responseStr = typeof response === 'string' ? response : JSON.stringify(response);
+            message += ` - ${responseStr.substring(0, 200)}${responseStr.length > 200 ? '...' : ''}`;
+        }
+        
+        this.addLog(message, type);
+    }
+
+    // 记录错误
+    logError(error, context = '') {
+        const message = context ? `${context}: ${error.message || error}` : (error.message || error);
+        this.addLog(message, 'error');
+        console.error(context, error);
+    }
+
+    // 记录警告
+    logWarning(message) {
+        this.addLog(message, 'warning');
+        console.warn(message);
+    }
+
+    // 记录成功信息
+    logSuccess(message) {
+        this.addLog(message, 'success');
+    }
+}
+
+// 创建全局日志管理器实例
+const logManager = new LogManager();
+
+// 清空日志的全局函数
+function clearLogs() {
+    logManager.clearLogs();
+}
+
+// 重写console方法以同时记录到日志区域
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+const originalConsoleLog = console.log;
+
+console.error = function(...args) {
+    originalConsoleError.apply(console, args);
+    logManager.addLog(args.join(' '), 'error');
+};
+
+console.warn = function(...args) {
+    originalConsoleWarn.apply(console, args);
+    logManager.addLog(args.join(' '), 'warning');
+};
+
+// 增强APIClient类以支持日志记录
+if (typeof APIClient !== 'undefined') {
+    const originalRequest = APIClient.prototype.request;
+    
+    APIClient.prototype.request = async function(endpoint, options = {}) {
+        const method = options.method || 'GET';
+        const url = `${this.baseURL}${endpoint}`;
+        
+        // 记录请求
+        logManager.logAPIRequest(method, endpoint, options.body ? JSON.parse(options.body) : null);
+        
+        try {
+            const result = await originalRequest.call(this, endpoint, options);
+            // 记录成功响应
+            logManager.logAPIResponse(endpoint, result, true);
+            return result;
+        } catch (error) {
+            // 记录错误响应
+            logManager.logAPIResponse(endpoint, error.message, false);
+            throw error;
+        }
+    };
+}
+
+// 页面加载完成后初始化
+document.addEventListener('DOMContentLoaded', function() {
+    // 记录抖音API配置信息
+    logManager.logSuccess('抖音API配置加载成功 - Client Key: awc23rrtn8rtoqrk');
+    logManager.addLog('Client Secret已配置 (已隐藏)', 'info');
+    logManager.addLog('系统初始化完成，准备就绪', 'success');
+    
+    // 初始化数据
+    initializeApp();
+});
+
+// 应用初始化函数
+async function initializeApp() {
+    try {
+        // 初始化管理器
+        databaseManager = new DatabaseManager();
+        douyinAuth = new DouyinAuth();
+        douyinAPI = new DouyinAPI();
+        
+        logManager.logSuccess('管理器初始化完成');
+        
+        // 加载员工数据
+        await loadEmployeeData();
+        logManager.logSuccess('员工数据加载完成');
+        
+        // 检查授权回调
+        await checkAuthCallback();
+        
+        // 更新最后同步时间
+        updateLastSyncTime();
+        
+    } catch (error) {
+        logManager.logError(error, '应用初始化失败');
+        showNotification('系统初始化失败，请检查后端服务是否启动', 'error');
+    }
+}

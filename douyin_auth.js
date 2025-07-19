@@ -6,8 +6,8 @@
 class DouyinAuth {
     constructor() {
         this.config = {
-            client_key: 'aweme1234567890123456',  // 用户提供的Client Key
-            client_secret: 'your_client_secret_here',  // 需要用户提供Client Secret
+            client_key: 'awc23rrtn8rtoqrk',  // 用户提供的Client Key
+            client_secret: '584c1636208b8bd54fe7eb76d3cb5205',  // 用户提供的Client Secret
             redirect_uri: window.location.origin + window.location.pathname,  // 当前页面作为回调地址
             scope: 'user_info,data.external.user,data.external.item'  // 扩展权限范围以获取数据
         };

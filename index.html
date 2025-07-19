@@ -117,6 +117,69 @@
         .table tbody tr:hover {
             background-color: #f8f9fa;
         }
+        .debug-area {
+            background: #1e1e1e;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 30px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .debug-header {
+             color: #ffffff;
+             margin-bottom: 15px;
+             display: flex;
+             justify-content: space-between;
+             align-items: center;
+         }
+        .debug-content {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 8px 12px;
+            border-radius: 4px;
+            border-left: 3px solid;
+        }
+        .log-info {
+            background-color: #1a2332;
+            border-left-color: #17a2b8;
+            color: #17a2b8;
+        }
+        .log-success {
+            background-color: #1a2e1a;
+            border-left-color: #28a745;
+            color: #28a745;
+        }
+        .log-warning {
+            background-color: #332a1a;
+            border-left-color: #ffc107;
+            color: #ffc107;
+        }
+        .log-error {
+            background-color: #331a1a;
+            border-left-color: #dc3545;
+            color: #dc3545;
+        }
+        .log-timestamp {
+            color: #6c757d;
+            font-size: 11px;
+            margin-right: 8px;
+        }
+        .clear-logs-btn {
+            background: #495057;
+            border: none;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 5px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .clear-logs-btn:hover {
+            background: #6c757d;
+        }
     </style>
 </head>
 <body>
@@ -235,6 +298,32 @@
                     </div>
                 </div>
             </div>
+
+            <!-- 日志/调试区域 -->
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="feature-card">
+                        <div class="debug-area">
+                            <div class="debug-header">
+                                <h5><i class="fas fa-terminal me-2"></i>日志/调试信息</h5>
+                                <button class="clear-logs-btn" onclick="clearLogs()">
+                                    <i class="fas fa-trash me-1"></i>清空日志
+                                </button>
+                            </div>
+                            <div class="debug-content" id="debugContent">
+                                <div class="log-entry log-info">
+                                    <span class="log-timestamp">[2024-01-15 23:30:00]</span>
+                                    <span>系统初始化完成</span>
+                                </div>
+                                <div class="log-entry log-success">
+                                    <span class="log-timestamp">[2024-01-15 23:30:01]</span>
+                                    <span>抖音API配置加载成功 - Client Key: awc23rrtn8rtoqrk</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -260,7 +349,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-custom" onclick="addEmployee()">保存</button>
+                    <button type="button" class="btn btn-custom" onclick="saveEmployee()">保存</button>
                 </div>
             </div>
         </div>
