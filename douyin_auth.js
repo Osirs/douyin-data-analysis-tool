@@ -11,8 +11,8 @@ class DouyinAuth {
         this.config = {
             client_key: 'awc23rtn8tcqrk',
             client_secret: '1755b7c5571c9eca',
-            redirect_uri: 'https://open.douyin.com/platform/oauth/connect/',
-            scope: 'user_info,video.list,video.data,fans.data,following.data,interaction,data.external.user,data.external.item'
+            redirect_uri: 'https://api.snssdk.com/oauth/authorize/callback/',
+            scope: 'user_info,data.external.user,video.list.bind,trial.whitelist'
         };
 
         // API端点配置
@@ -23,7 +23,7 @@ class DouyinAuth {
 
         // API端点（用于授权URL生成）
         this.endpoints = {
-            auth: 'https://open.douyin.com/platform/oauth/connect/',
+            authorize: 'https://open.douyin.com/platform/oauth/connect',
             userinfo: 'https://open.douyin.com/oauth/userinfo/'
         };
     }

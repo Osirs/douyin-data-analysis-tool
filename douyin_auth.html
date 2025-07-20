@@ -111,7 +111,7 @@
             </div>
             <div class="param-item">
                 <div class="param-name">Scope:</div>
-                <div class="param-value">user_info,video.list,video.data</div>
+                <div class="param-value">data.external.user,video.list.bind</div>
             </div>
             <div class="param-item">
                 <div class="param-name">Redirect URI:</div>
@@ -143,14 +143,14 @@
         const authConfig = {
             client_key: 'awc23rrtn8rtoqrk',
             response_type: 'code',
-            scope: 'user_info,video.list,video.data',
+            scope: 'data.external.user,video.list.bind',
             redirect_uri: 'https://api.snssdk.com/oauth/authorize/callback/',
             state: 'douyin_auth_' + Date.now()
         };
 
         // 构建授权URL
         function buildAuthUrl() {
-            const baseUrl = 'https://open.douyin.com/platform/oauth/connect/';
+            const baseUrl = 'https://open.douyin.com/platform/oauth/connect';
             const params = new URLSearchParams(authConfig);
             return baseUrl + '?' + params.toString();
         }

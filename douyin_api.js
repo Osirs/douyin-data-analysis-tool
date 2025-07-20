@@ -1,110 +1,112 @@
 /**
  * 抖音开放平台API调用模块
- * 实现用户数据获取的各种接口
+ * 使用官方SDK实现用户数据获取的各种接口
  */
+// 暂时注释SDK导入以避免循环依赖问题
+// const Client = require('@open-dy/open_api_sdk');
+// const CredentialClient = require('@open-dy/open_api_credential');
+const fetch = require('node-fetch');
+require('dotenv').config();
 
 class DouyinAPI {
     constructor() {
-        this.baseUrl = 'https://open.douyin.com';
-        this.endpoints = {
-            // 用户数据相关接口
-            userInfo: '/api/douyin/v1/user/info/',
-            userVideoStatus: '/data/external/user/item/',
-            userFans: '/data/external/user/fans/',
-            userLike: '/data/external/user/like/',
-            userComment: '/data/external/user/comment/',
-            userShare: '/data/external/user/share/',
-            userProfile: '/data/external/user/profile/',
-            
-            // 视频数据相关接口
-            videoList: '/api/douyin/v1/video/list/',
-            videoData: '/data/external/item/base/',
-            
-            // 其他接口
-            relatedId: '/api/douyin/v1/auth/get_related_id/'
-        };
+        this.clientKey = process.env.DOUYIN_CLIENT_KEY;
+        this.clientSecret = process.env.DOUYIN_CLIENT_SECRET;
+        this.redirectUri = process.env.DOUYIN_REDIRECT_URI;
+        
+        // 暂时注释SDK客户端初始化
+        // this.client = new Client({
+        //     clientKey: this.clientKey,
+        //     clientSecret: this.clientSecret
+        // });
+        
+        // 初始化凭证客户端
+        // this.credentialClient = new CredentialClient({
+        //     clientKey: this.clientKey,
+        //     clientSecret: this.clientSecret
+        // });
+        
+        console.log('🔧 抖音API初始化完成', {
+            clientKey: this.clientKey,
+            redirectUri: this.redirectUri
+        });
     }
-
+    
     /**
-     * 通用API请求方法
-     * @param {string} endpoint - API端点
-     * @param {Object} params - 请求参数
-     * @param {string} accessToken - 访问令牌
-     * @param {string} method - 请求方法
-     * @returns {Promise<Object>} API响应
+     * 生成授权URL
+     * @param {string} state - 状态参数，用于防止CSRF攻击
+     * @returns {string} 授权URL
      */
-    async makeRequest(endpoint, params = {}, accessToken, method = 'GET') {
+    generateAuthUrl(state = '') {
+        const params = new URLSearchParams({
+            client_key: this.clientKey,
+            response_type: 'code',
+            scope: 'data.external.user,video.list.bind',
+            redirect_uri: this.redirectUri,
+            state: state || 'douyin_auth_' + Date.now()
+        });
+        
+        const authUrl = `https://open.douyin.com/platform/oauth/connect?${params.toString()}`;
+        console.log('🔗 生成授权URL:', authUrl);
+        console.log('🔧 授权参数:', {
+            client_key: this.clientKey,
+            response_type: 'code',
+            scope: 'data.external.user,video.list.bind',
+            redirect_uri: this.redirectUri,
+            state: state || 'douyin_auth_' + Date.now()
+        });
+        return authUrl;
+    }
+    
+    /**
+     * 使用授权码获取访问令牌
+     * @param {string} code - 授权码
+     * @returns {Promise<Object>} 令牌信息
+     */
+    async getAccessToken(code) {
         try {
-            const url = this.baseUrl + endpoint;
-            let requestOptions = {
-                method: method
+            console.log('🔄 获取访问令牌，授权码:', code);
+            
+            const url = 'https://open.douyin.com/oauth/access_token/';
+            const params = {
+                client_key: this.clientKey,
+                client_secret: this.clientSecret,
+                code: code,
+                grant_type: 'authorization_code'
             };
-
-            if (method === 'GET') {
-                const queryString = new URLSearchParams(params).toString();
-                const fullUrl = queryString ? `${url}?${queryString}` : url;
-                requestOptions.url = fullUrl;
-                requestOptions.headers = {
-                    'access-token': accessToken
-                };
-            } else {
-                // POST请求使用form-urlencoded格式
-                const formData = new URLSearchParams();
-                Object.keys(params).forEach(key => {
-                    formData.append(key, params[key]);
-                });
-                formData.append('access_token', accessToken);
-                
-                requestOptions.headers = {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                };
-                requestOptions.body = formData;
-            }
-
-            console.log(`🔄 调用抖音API: ${method} ${url}`, params);
             
-            const response = await fetch(method === 'GET' ? requestOptions.url || url : url, requestOptions);
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(params)
+            });
             
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
+            const result = await response.json();
+            console.log('📥 访问令牌响应:', result);
             
-            const data = await response.json();
-            console.log('📥 抖音API响应:', data);
-
-            if (data.err_no === 0 || data.error_code === 0) {
+            if (result && result.data && result.data.error_code === 0) {
                 return {
                     success: true,
-                    data: data.data || data,
-                    message: '请求成功'
+                    data: result.data,
+                    message: '获取访问令牌成功'
                 };
             } else {
-                console.error('❌ 抖音API请求失败:', data);
                 return {
                     success: false,
-                    error: data,
-                    message: data.err_msg || data.message || 'API请求失败'
+                    error: result,
+                    message: result.data ? result.data.description || '获取访问令牌失败' : '获取访问令牌失败'
                 };
             }
         } catch (error) {
-            console.error('❌ 抖音API网络请求失败:', error);
+            console.error('❌ 获取访问令牌失败:', error);
             return {
                 success: false,
                 error: error.message,
-                message: '网络请求失败: ' + error.message
+                message: '获取访问令牌异常: ' + error.message
             };
         }
-    }
-
-    /**
-     * 获取用户基本信息
-     * @param {string} openId - 用户openId
-     * @param {string} accessToken - 访问令牌
-     * @returns {Promise<Object>} 用户信息
-     */
-    async getUserInfo(openId, accessToken) {
-        const params = { open_id: openId };
-        return await this.makeRequest(this.endpoints.userInfo, params, accessToken, 'POST');
     }
 
     /**
@@ -115,11 +117,27 @@ class DouyinAPI {
      * @returns {Promise<Object>} 用户视频数据
      */
     async getUserVideoStatus(openId, accessToken, dateType = 7) {
-        const params = {
-            open_id: openId,
-            date_type: dateType
-        };
-        return await this.makeRequest(this.endpoints.userVideoStatus, params, accessToken, 'GET');
+        try {
+            console.log('🔄 获取用户视频情况:', { openId, dateType });
+            
+            const params = {
+                access_token: accessToken,
+                date_type: dateType,
+                open_id: openId
+            };
+            
+            const response = await this.makeGenericRequest('https://open.douyin.com/data/external/user/item/', params, 'POST');
+            console.log('📥 用户视频情况响应:', response);
+            
+            return response;
+        } catch (error) {
+            console.error('❌ 获取用户视频情况失败:', error);
+            return {
+                success: false,
+                error: error.message,
+                message: '获取用户视频情况异常: ' + error.message
+            };
+        }
     }
 
     /**
@@ -130,11 +148,27 @@ class DouyinAPI {
      * @returns {Promise<Object>} 用户粉丝数据
      */
     async getUserFansData(openId, accessToken, dateType = 7) {
-        const params = {
-            open_id: openId,
-            date_type: dateType
-        };
-        return await this.makeRequest(this.endpoints.userFans, params, accessToken, 'GET');
+        try {
+             console.log('🔄 获取用户粉丝数据:', { openId, dateType });
+             
+             const params = {
+                 access_token: accessToken,
+                 date_type: dateType,
+                 open_id: openId
+             };
+             
+             const response = await this.makeGenericRequest('https://open.douyin.com/data/external/user/fans/', params, 'POST');
+             console.log('📥 用户粉丝数据响应:', response);
+             
+             return response;
+        } catch (error) {
+            console.error('❌ 获取用户粉丝数据失败:', error);
+            return {
+                success: false,
+                error: error.message,
+                message: '获取用户粉丝数据异常: ' + error.message
+            };
+        }
     }
 
     /**
@@ -145,13 +179,29 @@ class DouyinAPI {
      * @returns {Promise<Object>} 用户点赞数据
      */
     async getUserLikeData(openId, accessToken, dateType = 7) {
-        const params = {
-            open_id: openId,
-            date_type: dateType
-        };
-        return await this.makeRequest(this.endpoints.userLike, params, accessToken, 'GET');
+        try {
+             console.log('🔄 获取用户点赞数据:', { openId, dateType });
+             
+             const params = {
+                 access_token: accessToken,
+                 date_type: dateType,
+                 open_id: openId
+             };
+             
+             const response = await this.makeGenericRequest('https://open.douyin.com/data/external/user/like/', params, 'POST');
+             console.log('📥 用户点赞数据响应:', response);
+             
+             return response;
+        } catch (error) {
+            console.error('❌ 获取用户点赞数据失败:', error);
+            return {
+                success: false,
+                error: error.message,
+                message: '获取用户点赞数据异常: ' + error.message
+            };
+        }
     }
-
+    
     /**
      * 获取用户评论数据
      * @param {string} openId - 用户openId
@@ -160,13 +210,29 @@ class DouyinAPI {
      * @returns {Promise<Object>} 用户评论数据
      */
     async getUserCommentData(openId, accessToken, dateType = 7) {
-        const params = {
-            open_id: openId,
-            date_type: dateType
-        };
-        return await this.makeRequest(this.endpoints.userComment, params, accessToken, 'GET');
+        try {
+             console.log('🔄 获取用户评论数据:', { openId, dateType });
+             
+             const params = {
+                 access_token: accessToken,
+                 date_type: dateType,
+                 open_id: openId
+             };
+             
+             const response = await this.makeGenericRequest('https://open.douyin.com/data/external/user/comment/', params, 'POST');
+             console.log('📥 用户评论数据响应:', response);
+             
+             return response;
+        } catch (error) {
+            console.error('❌ 获取用户评论数据失败:', error);
+            return {
+                success: false,
+                error: error.message,
+                message: '获取用户评论数据异常: ' + error.message
+            };
+        }
     }
-
+    
     /**
      * 获取用户分享数据
      * @param {string} openId - 用户openId
@@ -175,11 +241,56 @@ class DouyinAPI {
      * @returns {Promise<Object>} 用户分享数据
      */
     async getUserShareData(openId, accessToken, dateType = 7) {
-        const params = {
-            open_id: openId,
-            date_type: dateType
-        };
-        return await this.makeRequest(this.endpoints.userShare, params, accessToken, 'GET');
+        try {
+             console.log('🔄 获取用户分享数据:', { openId, dateType });
+             
+             const params = {
+                 access_token: accessToken,
+                 date_type: dateType,
+                 open_id: openId
+             };
+             
+             const response = await this.makeGenericRequest('https://open.douyin.com/data/external/user/share/', params, 'POST');
+             console.log('📥 用户分享数据响应:', response);
+             
+             return response;
+        } catch (error) {
+            console.error('❌ 获取用户分享数据失败:', error);
+            return {
+                success: false,
+                error: error.message,
+                message: '获取用户分享数据异常: ' + error.message
+            };
+        }
+    }
+
+    /**
+     * 获取用户信息
+     * @param {string} openId - 用户openId
+     * @param {string} accessToken - 访问令牌
+     * @returns {Promise<Object>} 用户信息
+     */
+    async getUserInfo(openId, accessToken) {
+        try {
+            console.log('🔄 获取用户信息:', { openId });
+            
+            const params = {
+                access_token: accessToken,
+                open_id: openId
+            };
+            
+            const response = await this.makeGenericRequest('https://open.douyin.com/oauth/userinfo/', params);
+            console.log('📥 用户信息响应:', response);
+            
+            return response;
+        } catch (error) {
+            console.error('❌ 获取用户信息失败:', error);
+            return {
+                success: false,
+                error: error.message,
+                message: '获取用户信息异常: ' + error.message
+            };
+        }
     }
 
     /**
@@ -190,11 +301,27 @@ class DouyinAPI {
      * @returns {Promise<Object>} 用户主页访问数据
      */
     async getUserProfileData(openId, accessToken, dateType = 7) {
-        const params = {
-            open_id: openId,
-            date_type: dateType
-        };
-        return await this.makeRequest(this.endpoints.userProfile, params, accessToken, 'GET');
+        try {
+             console.log('🔄 获取用户主页访问数据:', { openId, dateType });
+             
+             const params = {
+                 access_token: accessToken,
+                 date_type: dateType,
+                 open_id: openId
+             };
+             
+             const response = await this.makeGenericRequest('https://open.douyin.com/data/external/user/profile/', params, 'POST');
+             console.log('📥 用户主页访问数据响应:', response);
+             
+             return response;
+        } catch (error) {
+            console.error('❌ 获取用户主页访问数据失败:', error);
+            return {
+                success: false,
+                error: error.message,
+                message: '获取用户主页访问数据异常: ' + error.message
+            };
+        }
     }
 
     /**
@@ -204,8 +331,26 @@ class DouyinAPI {
      * @returns {Promise<Object>} 用户唯一标识
      */
     async getUserRelatedId(openId, accessToken) {
-        const params = { open_id: openId };
-        return await this.makeRequest(this.endpoints.relatedId, params, accessToken, 'POST');
+        try {
+            console.log('🔄 获取用户唯一标识:', { openId });
+            
+            const params = {
+                access_token: accessToken,
+                open_id: openId
+            };
+            
+            const response = await this.makeGenericRequest('https://open.douyin.com/data/external/user/related_id/', params, 'POST');
+            console.log('📥 用户唯一标识响应:', response);
+            
+            return response;
+        } catch (error) {
+            console.error('❌ 获取用户唯一标识失败:', error);
+            return {
+                success: false,
+                error: error.message,
+                message: '获取用户唯一标识异常: ' + error.message
+            };
+        }
     }
 
     /**
@@ -217,12 +362,87 @@ class DouyinAPI {
      * @returns {Promise<Object>} 用户视频列表
      */
     async getUserVideoList(openId, accessToken, count = 10, cursor = 0) {
-        const params = {
-            open_id: openId,
-            count: count,
-            cursor: cursor
-        };
-        return await this.makeRequest(this.endpoints.videoList, params, accessToken, 'POST');
+        try {
+            console.log('🔄 获取用户视频列表:', { openId, count, cursor });
+            
+            const params = {
+                access_token: accessToken,
+                open_id: openId,
+                count: count,
+                cursor: cursor
+            };
+            
+            const response = await this.makeGenericRequest('https://open.douyin.com/video/list/', params, 'POST');
+            console.log('📥 用户视频列表响应:', response);
+            
+            return response;
+        } catch (error) {
+            console.error('❌ 获取用户视频列表失败:', error);
+            return {
+                success: false,
+                error: error.message,
+                message: '获取用户视频列表异常: ' + error.message
+            };
+        }
+    }
+
+    /**
+     * 通用API请求方法（用于SDK未覆盖的接口）
+     * @param {string} url - 请求URL
+     * @param {Object} params - 请求参数
+     * @param {string} method - 请求方法
+     * @returns {Promise<Object>} API响应
+     */
+    async makeGenericRequest(url, params, method = 'GET') {
+        try {
+            let response;
+            
+            if (method === 'GET') {
+                const queryString = new URLSearchParams(params).toString();
+                const fullUrl = `${url}?${queryString}`;
+                
+                response = await fetch(fullUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+            } else {
+                response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(params)
+                });
+            }
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.err_no === 0 || data.error_code === 0) {
+                return {
+                    success: true,
+                    data: data.data || data,
+                    message: '请求成功'
+                };
+            } else {
+                return {
+                    success: false,
+                    error: data,
+                    message: data.err_msg || data.message || 'API请求失败'
+                };
+            }
+        } catch (error) {
+            return {
+                success: false,
+                error: error.message,
+                message: '网络请求失败: ' + error.message
+            };
+        }
     }
 
     /**

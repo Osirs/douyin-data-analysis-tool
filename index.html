@@ -233,6 +233,67 @@
                         </div>
                         <p class="text-muted mb-4">管理企业员工的抖音账号授权状态，确保数据同步正常进行。</p>
                         
+                        <!-- 授权凭证显示区域 -->
+                        <div class="auth-credentials-section" id="authCredentialsSection" style="display: none;">
+                            <div class="card mb-4">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0"><i class="fas fa-key me-2"></i>授权凭证信息</h5>
+                                    <button class="btn btn-sm btn-outline-secondary" onclick="hideAuthCredentials()">
+                                        <i class="fas fa-times me-1"></i>关闭
+                                    </button>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <h6 class="text-muted mb-3">员工信息</h6>
+                                            <p><strong>员工姓名：</strong><span id="authEmployeeName">-</span></p>
+                                            <p><strong>抖音账号：</strong><span id="authDouyinAccount">-</span></p>
+                                            <p><strong>授权状态：</strong><span id="authStatus">-</span></p>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <h6 class="text-muted mb-3">授权凭证</h6>
+                                            <div class="mb-2">
+                                                <label class="form-label small text-muted">授权码 (Code)</label>
+                                                <div class="input-group input-group-sm">
+                                                    <input type="text" class="form-control" id="authCode" readonly>
+                                                    <button class="btn btn-outline-secondary" type="button" onclick="copyAuthField('authCode')">
+                                                        <i class="fas fa-copy"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="mb-2">
+                                                <label class="form-label small text-muted">访问令牌 (Access Token)</label>
+                                                <div class="input-group input-group-sm">
+                                                    <input type="text" class="form-control" id="authAccessToken" readonly>
+                                                    <button class="btn btn-outline-secondary" type="button" onclick="copyAuthField('authAccessToken')">
+                                                        <i class="fas fa-copy"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="mb-2">
+                                                <label class="form-label small text-muted">刷新令牌 (Refresh Token)</label>
+                                                <div class="input-group input-group-sm">
+                                                    <input type="text" class="form-control" id="authRefreshToken" readonly>
+                                                    <button class="btn btn-outline-secondary" type="button" onclick="copyAuthField('authRefreshToken')">
+                                                        <i class="fas fa-copy"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="mb-2">
+                                                <label class="form-label small text-muted">授权范围 (Scope)</label>
+                                                <div class="input-group input-group-sm">
+                                                    <input type="text" class="form-control" id="authScope" readonly>
+                                                    <button class="btn btn-outline-secondary" type="button" onclick="copyAuthField('authScope')">
+                                                        <i class="fas fa-copy"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
                         <div class="employee-table">
                             <table class="table table-hover mb-0">
                                 <thead>
@@ -240,10 +301,6 @@
                                         <th>员工姓名</th>
                                         <th>抖音账号</th>
                                         <th>授权状态</th>
-                                        <th>授权码(Code)</th>
-                                        <th>访问令牌(Access Token)</th>
-                                        <th>刷新令牌(Refresh Token)</th>
-                                        <th>授权范围(Scope)</th>
                                         <th>粉丝数</th>
                                         <th>点赞数</th>
                                         <th>评论数</th>

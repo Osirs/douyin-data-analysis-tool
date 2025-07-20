@@ -5,7 +5,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const DatabaseManager = require('./database');
+const DatabaseManager = require('./config/database');
 const DouyinAPI = require('./douyin_api');
 
 const app = express();
@@ -176,6 +176,106 @@ app.delete('/api/employees/:id', ensureDbInitialized, async (req, res) => {
 });
 
 // ==================== 授权管理API ====================
+
+// 生成抖音授权URL
+app.get('/api/auth/url', (req, res) => {
+    try {
+        const douyinAPI = new DouyinAPI();
+        const authUrl = douyinAPI.generateAuthUrl();
+        
+        console.log('🔗 生成授权URL:', authUrl);
+        
+        res.json({
+            success: true,
+            data: {
+                authUrl: authUrl
+            },
+            message: '授权URL生成成功'
+        });
+    } catch (error) {
+        console.error('❌ 生成授权URL失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '生成授权URL失败: ' + error.message
+        });
+    }
+});
+
+// 通过授权码获取访问令牌
+app.post('/api/auth/access-token', ensureDbInitialized, async (req, res) => {
+    try {
+        const { code, employeeId } = req.body;
+        
+        if (!code || !employeeId) {
+            return res.status(400).json({
+                success: false,
+                message: '授权码和员工ID不能为空'
+            });
+        }
+        
+        console.log('🔄 开始获取访问令牌:', { code, employeeId });
+        
+        const douyinAPI = new DouyinAPI();
+        const tokenResult = await douyinAPI.getAccessToken(code);
+        
+        if (tokenResult.success) {
+            // 保存授权令牌到数据库
+            await dbManager.saveAuthToken(employeeId, tokenResult.data);
+            
+            // 获取用户信息
+            let userInfo = null;
+            try {
+                const userInfoResult = await douyinAPI.getUserInfo(tokenResult.data.open_id, tokenResult.data.access_token);
+                if (userInfoResult.success) {
+                    userInfo = userInfoResult.data;
+                    console.log('✅ 用户信息获取成功:', userInfo.nickname);
+                }
+            } catch (userInfoError) {
+                console.warn('⚠️ 获取用户信息失败:', userInfoError.message);
+            }
+            
+            // 更新员工信息
+            const updateData = {
+                auth_status: 'authorized',
+                access_token: tokenResult.data.access_token,
+                refresh_token: tokenResult.data.refresh_token,
+                open_id: tokenResult.data.open_id
+            };
+            
+            if (userInfo) {
+                updateData.nickname = userInfo.nickname;
+                updateData.avatar = userInfo.avatar;
+                updateData.followers_count = userInfo.followers_count || 0;
+                updateData.total_favorited = userInfo.total_favorited || 0;
+            }
+            
+            await dbManager.updateEmployee(employeeId, updateData);
+            
+            console.log('✅ 访问令牌获取并保存成功');
+            
+            res.json({
+                success: true,
+                data: {
+                    ...tokenResult.data,
+                    userInfo: userInfo
+                },
+                message: '授权成功'
+            });
+        } else {
+            console.error('❌ 获取访问令牌失败:', tokenResult.message);
+            res.status(400).json({
+                success: false,
+                message: '获取访问令牌失败: ' + tokenResult.message
+            });
+        }
+    } catch (error) {
+        console.error('❌ 授权处理失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '授权处理失败: ' + error.message
+        });
+    }
+});
 
 // 授权回调处理
 app.get('/auth/callback', async (req, res) => {
@@ -404,35 +504,96 @@ async function syncEmployeeData(employeeId) {
     const douyinAPI = new DouyinAPI();
     
     try {
+        console.log(`🔄 开始同步员工${employeeId}的数据`);
+        
         // 获取用户基本信息
-        const userInfo = await douyinAPI.getUserInfo(tokenInfo.access_token, tokenInfo.open_id);
+        const userInfoResult = await douyinAPI.getUserInfo(tokenInfo.open_id, tokenInfo.access_token);
+        console.log('📥 用户基本信息:', userInfoResult);
         
-        // 获取用户数据统计
-        const userStats = await douyinAPI.getUserData(tokenInfo.access_token, tokenInfo.open_id);
+        // 批量获取用户所有数据
+        const allDataResult = await douyinAPI.getCompleteUserData(tokenInfo.open_id, tokenInfo.access_token, 1);
+        console.log('📥 用户所有数据:', allDataResult);
         
-        // 合并用户数据
-        const userData = {
+        // 提取数据
+        let userData = {
             open_id: tokenInfo.open_id,
-            nickname: userInfo.nickname || '',
-            avatar_url: userInfo.avatar || '',
-            fans_count: userStats.fans_count || 0,
-            following_count: userStats.following_count || 0,
-            total_favorited: userStats.total_favorited || 0,
-            video_count: userStats.video_count || 0
+            nickname: '',
+            avatar_url: '',
+            fans_count: 0,
+            following_count: 0,
+            total_favorited: 0,
+            like_count: 0,
+            comment_count: 0,
+            share_count: 0,
+            home_pv: 0,
+            video_count: 0,
+            data_date: new Date().toISOString().split('T')[0]
         };
+        
+        // 处理用户基本信息
+        if (userInfoResult.success && userInfoResult.data) {
+            userData.nickname = userInfoResult.data.nickname || '';
+            userData.avatar_url = userInfoResult.data.avatar || '';
+        }
+        
+        // 处理各项数据
+        if (allDataResult.success && allDataResult.data) {
+            const { videoStatus, fansData, likeData, commentData, shareData, profileData } = allDataResult.data;
+            
+            // 视频数据
+            if (videoStatus && videoStatus.success && videoStatus.data) {
+                userData.video_count = videoStatus.data.video_count || 0;
+            }
+            
+            // 粉丝数据
+            if (fansData && fansData.success && fansData.data) {
+                userData.fans_count = fansData.data.fans_count || 0;
+            }
+            
+            // 点赞数据
+            if (likeData && likeData.success && likeData.data) {
+                userData.like_count = likeData.data.like_count || 0;
+            }
+            
+            // 评论数据
+            if (commentData && commentData.success && commentData.data) {
+                userData.comment_count = commentData.data.comment_count || 0;
+            }
+            
+            // 分享数据
+            if (shareData && shareData.success && shareData.data) {
+                userData.share_count = shareData.data.share_count || 0;
+            }
+            
+            // 主页访问数据
+            if (profileData && profileData.success && profileData.data) {
+                userData.home_pv = profileData.data.home_pv || 0;
+            }
+        }
         
         // 保存用户数据
         await dbManager.saveUserData(employeeId, userData);
         
+        // 更新员工表中的统计数据
+        await dbManager.updateEmployee(employeeId, {
+            fans_count: userData.fans_count,
+            like_count: userData.like_count,
+            comment_count: userData.comment_count,
+            share_count: userData.share_count,
+            home_pv: userData.home_pv,
+            video_count: userData.video_count,
+            last_sync_time: new Date().toISOString()
+        });
+        
         // 获取视频列表
-        const videoList = await douyinAPI.getVideoList(tokenInfo.access_token, tokenInfo.open_id);
-        if (videoList && videoList.length > 0) {
-            await dbManager.saveVideoData(employeeId, videoList);
+        const videoListResult = await douyinAPI.getUserVideoList(tokenInfo.open_id, tokenInfo.access_token, 50, 0);
+        if (videoListResult.success && videoListResult.data && videoListResult.data.list) {
+            await dbManager.saveVideoData(employeeId, videoListResult.data.list);
         }
         
-        console.log(`员工${employeeId}数据同步成功`);
+        console.log(`✅ 员工${employeeId}数据同步成功`);
     } catch (error) {
-        console.error(`员工${employeeId}数据同步失败:`, error);
+        console.error(`❌ 员工${employeeId}数据同步失败:`, error);
         throw error;
     }
 }
@@ -595,12 +756,9 @@ app.post('/api/sync/manual', ensureDbInitialized, async (req, res) => {
     try {
         const { employeeId } = req.body;
         
-        // 创建抖音API实例
-        const douyinAPI = new DouyinAPI();
-        
         if (employeeId) {
             // 同步单个员工数据
-            const result = await syncEmployeeData(employeeId, douyinAPI);
+            const result = await syncEmployeeData(employeeId);
             res.json({
                 success: true,
                 data: result,
@@ -614,7 +772,7 @@ app.post('/api/sync/manual', ensureDbInitialized, async (req, res) => {
             const results = [];
             for (const employee of authorizedEmployees) {
                 try {
-                    const result = await syncEmployeeData(employee.id, douyinAPI);
+                    const result = await syncEmployeeData(employee.id);
                     results.push({ employeeId: employee.id, success: true, data: result });
                 } catch (error) {
                     results.push({ employeeId: employee.id, success: false, error: error.message });
@@ -657,106 +815,7 @@ app.get('/api/video-stats/:employeeId', ensureDbInitialized, async (req, res) =>
     }
 });
 
-// 同步单个员工数据的函数
-async function syncEmployeeData(employeeId, douyinAPI) {
-    try {
-        // 获取员工的授权token
-        const tokenData = await dbManager.getAuthToken(employeeId);
-        if (!tokenData || !tokenData.access_token) {
-            throw new Error('员工未授权或token已过期');
-        }
-        
-        const { access_token, open_id } = tokenData;
-        const results = {};
-        
-        // 1. 获取用户粉丝数
-        try {
-            const fansData = await douyinAPI.getUserFansCount(open_id, access_token);
-            if (fansData.success) {
-                results.fans_count = fansData.data.follower_count || 0;
-            }
-        } catch (error) {
-            console.error('获取粉丝数失败:', error);
-        }
-        
-        // 2. 获取用户点赞数
-        try {
-            const likeData = await douyinAPI.getUserLikeNumber(open_id, access_token);
-            if (likeData.success) {
-                results.like_count = likeData.data.like_count || 0;
-            }
-        } catch (error) {
-            console.error('获取点赞数失败:', error);
-        }
-        
-        // 3. 获取用户评论数
-        try {
-            const commentData = await douyinAPI.getUserCommentCount(open_id, access_token);
-            if (commentData.success) {
-                results.comment_count = commentData.data.comment_count || 0;
-            }
-        } catch (error) {
-            console.error('获取评论数失败:', error);
-        }
-        
-        // 4. 获取用户分享数
-        try {
-            const shareData = await douyinAPI.getUserShareCount(open_id, access_token);
-            if (shareData.success) {
-                results.share_count = shareData.data.share_count || 0;
-            }
-        } catch (error) {
-            console.error('获取分享数失败:', error);
-        }
-        
-        // 5. 获取主页访问数
-        try {
-            const pvData = await douyinAPI.getUserHomePv(open_id, access_token);
-            if (pvData.success) {
-                results.home_pv = pvData.data.pv_count || 0;
-            }
-        } catch (error) {
-            console.error('获取主页访问数失败:', error);
-        }
-        
-        // 6. 获取用户视频状态
-        try {
-            const videoStatusData = await douyinAPI.getUserVideoStatus(open_id, access_token);
-            if (videoStatusData.success) {
-                results.video_count = videoStatusData.data.video_count || 0;
-                
-                // 保存视频统计数据
-                const today = new Date().toISOString().split('T')[0];
-                await dbManager.saveUserVideoStats(employeeId, {
-                    stat_date: today,
-                    daily_publish_count: videoStatusData.data.daily_publish_count || 0,
-                    daily_new_play_count: videoStatusData.data.daily_new_play_count || 0,
-                    total_publish_count: videoStatusData.data.total_publish_count || 0
-                });
-            }
-        } catch (error) {
-            console.error('获取视频状态失败:', error);
-        }
-        
-        // 更新员工表中的数据
-        await dbManager.updateEmployee(employeeId, {
-            ...results,
-            last_sync_time: new Date()
-        });
-        
-        // 保存用户数据历史记录
-        await dbManager.saveUserData(employeeId, {
-            open_id,
-            ...results,
-            data_date: new Date().toISOString().split('T')[0]
-        });
-        
-        return results;
-    } catch (error) {
-        console.error(`同步员工 ${employeeId} 数据失败:`, error);
-        throw error;
-    }
-}
+
 
 // ==================== 数据导入导出API ====================
 
@@ -800,6 +859,91 @@ app.delete('/api/data/clear', ensureDbInitialized, async (req, res) => {
 // 主页
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// 抖音授权回调处理
+app.get('/auth/callback', (req, res) => {
+    const { code, state } = req.query;
+    
+    if (code) {
+        // 授权成功，显示授权码
+        const html = `
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>授权成功</title>
+            <style>
+                body { font-family: 'Microsoft YaHei', Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background: #f8f9fa; }
+                .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                h1 { color: #28a745; text-align: center; margin-bottom: 30px; }
+                .param-item { margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #28a745; }
+                .param-name { font-weight: bold; color: #495057; margin-bottom: 5px; }
+                .param-value { color: #666; font-family: monospace; word-break: break-all; background: white; padding: 10px; border-radius: 4px; }
+                .note { background: #d4edda; border: 1px solid #c3e6cb; border-radius: 8px; padding: 15px; margin: 20px 0; color: #155724; }
+                .back-btn { display: inline-block; background: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin-top: 20px; }
+                .back-btn:hover { background: #0056b3; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>✅ 抖音授权成功！</h1>
+                <div class="param-item">
+                    <div class="param-name">授权码 (Code):</div>
+                    <div class="param-value">${code}</div>
+                </div>
+                <div class="param-item">
+                    <div class="param-name">状态参数 (State):</div>
+                    <div class="param-value">${state || 'N/A'}</div>
+                </div>
+                <div class="note">
+                    <strong>🎉 下一步：</strong><br>
+                    使用上述授权码调用 access_token 接口获取用户访问令牌。授权码有效期较短，请及时使用。
+                </div>
+                <a href="/" class="back-btn">← 返回主页</a>
+                <a href="/douyin_auth.html" class="back-btn">重新授权</a>
+            </div>
+        </body>
+        </html>`;
+        
+        res.send(html);
+    } else {
+        // 授权失败
+        const error = req.query.error || '未知错误';
+        const errorDescription = req.query.error_description || '授权过程中发生错误';
+        
+        const html = `
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>授权失败</title>
+            <style>
+                body { font-family: 'Microsoft YaHei', Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background: #f8f9fa; }
+                .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                h1 { color: #dc3545; text-align: center; margin-bottom: 30px; }
+                .error-info { background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 15px; margin: 20px 0; color: #721c24; }
+                .back-btn { display: inline-block; background: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin-top: 20px; }
+                .back-btn:hover { background: #0056b3; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>❌ 授权失败</h1>
+                <div class="error-info">
+                    <strong>错误类型：</strong> ${error}<br>
+                    <strong>错误描述：</strong> ${errorDescription}
+                </div>
+                <a href="/douyin_auth.html" class="back-btn">重新授权</a>
+                <a href="/" class="back-btn">返回主页</a>
+            </div>
+        </body>
+        </html>`;
+        
+        res.send(html);
+    }
 });
 
 // 白名单授权页面

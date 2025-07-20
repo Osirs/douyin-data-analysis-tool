@@ -114,6 +114,63 @@
     }
 }
 
+/* 表格响应式优化 */
+.employee-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.employee-table table {
+    min-width: 1200px;
+    white-space: nowrap;
+}
+
+.employee-table th,
+.employee-table td {
+    padding: 12px 8px;
+    vertical-align: middle;
+    text-align: center;
+}
+
+.employee-table th:first-child,
+.employee-table td:first-child {
+    text-align: left;
+    min-width: 100px;
+}
+
+.employee-table th:nth-child(2),
+.employee-table td:nth-child(2) {
+    text-align: left;
+    min-width: 120px;
+}
+
+.employee-table th:last-child,
+.employee-table td:last-child {
+    min-width: 280px;
+    text-align: center;
+}
+
+/* 授权凭证区域样式 */
+.auth-credentials-section {
+    animation: fadeInUp 0.3s ease-out;
+}
+
+.auth-credentials-section .card {
+    border: 1px solid #e3f2fd;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.auth-credentials-section .card-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-bottom: none;
+}
+
+.auth-credentials-section .input-group-sm .form-control {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+}
+
 /* 响应式设计增强 */
 @media (max-width: 768px) {
     .main-container {
@@ -137,6 +194,34 @@
         padding: 8px 20px;
         font-size: 0.9rem;
     }
+    
+    .employee-table table {
+        min-width: 800px;
+    }
+    
+    .employee-table th,
+    .employee-table td {
+        padding: 8px 4px;
+        font-size: 12px;
+    }
+    
+    .employee-table th:last-child,
+    .employee-table td:last-child {
+        min-width: 200px;
+    }
+    
+    .btn-sm {
+        font-size: 10px;
+        padding: 4px 8px;
+    }
+    
+    .auth-credentials-section .row {
+        margin: 0;
+    }
+    
+    .auth-credentials-section .col-md-6 {
+        padding: 0 8px;
+    }
 }
 
 @media (max-width: 576px) {
@@ -158,6 +243,19 @@
     
     .btn-sm {
         padding: 4px 8px;
+    }
+    
+    .employee-table table {
+        min-width: 600px;
+    }
+    
+    .employee-table th:last-child,
+    .employee-table td:last-child {
+        min-width: 150px;
+    }
+    
+    .auth-credentials-section .col-md-6 {
+        margin-bottom: 20px;
     }
 }
 

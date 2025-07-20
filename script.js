@@ -316,7 +316,7 @@ class DouyinAuth {
         this.clientSecret = 'f4a6b2c8e1d3f7a9b5c2e8f1a4d7b9c3';
         // 使用抖音官方回调地址
         this.redirectUri = 'https://api.snssdk.com/oauth/authorize/callback/';
-        this.scope = 'user_info,video.list,video.data,data.external.user,video.list.bind';
+        this.scope = 'user_info,data.external.user,video.list.bind,trial.whitelist';
         this.optionalScope = '';
     }
 
@@ -339,7 +339,7 @@ class DouyinAuth {
             params.append('optionalScope', this.optionalScope);
         }
         
-        const authUrl = `https://open.douyin.com/platform/oauth/connect/?${params.toString()}`;
+        const authUrl = `https://open.douyin.com/platform/oauth/connect?${params.toString()}`;
         logManager.addLog(`生成授权URL: ${authUrl}`, 'info');
         return authUrl;
     }
@@ -947,36 +947,37 @@ async function loadEmployeeData() {
         tbody.innerHTML = '';
         
         if (employees.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted">暂无员工数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted">暂无员工数据</td></tr>';
             return;
         }
         
         // 为每个员工获取授权令牌信息并添加到表格
         for (const employee of employees) {
-            try {
-                // 获取授权令牌信息
-                const authToken = await databaseManager.getAuthToken(employee.id);
-                
-                // 将授权信息合并到员工对象中
-                const employeeWithAuth = {
-                    ...employee,
-                    code: authToken?.code || null,
-                    access_token: authToken?.access_token || null,
-                    refresh_token: authToken?.refresh_token || null,
-                    scope: authToken?.scope || null,
-                    open_id: authToken?.open_id || null,
-                    expires_in: authToken?.expires_in || null
-                };
-                
-                addEmployeeToTable(employeeWithAuth);
-            } catch (error) {
-                // 如果是404错误（授权令牌不存在），不记录错误日志，这是正常情况
-                if (!error.message.includes('404')) {
+            let employeeWithAuth = { ...employee };
+            
+            // 只对已授权的员工获取授权令牌信息，避免不必要的404请求
+            if (employee.auth_status === 'authorized') {
+                try {
+                    // 获取授权令牌信息
+                    const authToken = await databaseManager.getAuthToken(employee.id);
+                    
+                    // 将授权信息合并到员工对象中
+                    employeeWithAuth = {
+                        ...employee,
+                        code: authToken?.code || null,
+                        access_token: authToken?.access_token || null,
+                        refresh_token: authToken?.refresh_token || null,
+                        scope: authToken?.scope || null,
+                        open_id: authToken?.open_id || null,
+                        expires_in: authToken?.expires_in || null
+                    };
+                } catch (error) {
                     console.error(`获取员工 ${employee.id} 的授权信息失败:`, error);
+                    logManager.addLog(`获取员工 ${employee.name} 的授权信息失败: ${error.message}`, 'warning');
                 }
-                // 即使获取授权信息失败，也要显示员工基本信息
-                addEmployeeToTable(employee);
             }
+            
+            addEmployeeToTable(employeeWithAuth);
         }
         
     } catch (error) {
@@ -1025,59 +1026,14 @@ function addEmployeeToTable(employee) {
     // 格式化最后同步时间
     const lastSyncTime = employee.last_sync_time ? new Date(employee.last_sync_time).toLocaleString('zh-CN') : '-';
     
-    // 授权详情显示
-    let authDetails = '';
-    if (employee.auth_status === 'authorized' && employee.access_token) {
-        const maskedToken = employee.access_token.substring(0, 8) + '...' + employee.access_token.substring(employee.access_token.length - 8);
-        authDetails = `
-            <button class="btn btn-sm btn-link text-info" onclick="showAuthDetails('${employee.id}')" 
-                    title="查看授权详情">
-                <i class="fas fa-info-circle"></i> 详情
-            </button>
-            <div class="small text-muted mt-1">
-                <div>范围: ${employee.scope || 'N/A'}</div>
-                <div>Token: ${maskedToken}</div>
-            </div>
-        `;
-    } else {
-        authDetails = '<span class="text-muted small">未授权</span>';
-    }
-    
-    // 格式化授权凭证显示
-    const formatAuthCredential = (value, type) => {
-        if (!value) return '<span class="text-muted small">-</span>';
-        
-        if (type === 'token' && value.length > 16) {
-            const masked = value.substring(0, 8) + '...' + value.substring(value.length - 8);
-            return `
-                <div class="d-flex align-items-center">
-                    <span class="small text-truncate" style="max-width: 120px;" title="${value}">${masked}</span>
-                    <button class="btn btn-sm btn-link p-0 ms-1" onclick="copyToClipboard('${value}', '${type}')" title="复制">
-                        <i class="fas fa-copy text-muted"></i>
-                    </button>
-                </div>
-            `;
-        } else {
-            return `
-                <div class="d-flex align-items-center">
-                    <span class="small" title="${value}">${value}</span>
-                    <button class="btn btn-sm btn-link p-0 ms-1" onclick="copyToClipboard('${value}', '${type}')" title="复制">
-                        <i class="fas fa-copy text-muted"></i>
-                    </button>
-                </div>
-            `;
-        }
-    };
+    // 存储员工数据到行元素，用于授权凭证显示
+    row.setAttribute('data-employee-id', employee.id);
+    row.setAttribute('data-employee-data', JSON.stringify(employee));
 
     row.innerHTML = `
         <td>${employee.name}</td>
         <td>@${employee.douyin_account}</td>
         <td>${statusBadge}</td>
-        <td>${formatAuthCredential(employee.code || '', 'code')}</td>
-        <td>${formatAuthCredential(employee.access_token || '', 'token')}</td>
-        <td>${formatAuthCredential(employee.refresh_token || '', 'token')}</td>
-        <td>${formatAuthCredential(employee.scope || '', 'scope')}</td>
-        <td>${authDetails}</td>
         <td>${formatNumber(employee.fans_count || 0)}</td>
         <td>${formatNumber(employee.like_count || 0)}</td>
         <td>${formatNumber(employee.comment_count || 0)}</td>
@@ -1091,9 +1047,14 @@ function addEmployeeToTable(employee) {
         </td>
         <td>${lastSyncTime}</td>
         <td>
+            <button class="btn btn-sm btn-info me-1" onclick="showAuthCredentials('${employee.id}')" 
+                    ${employee.auth_status !== 'authorized' ? 'disabled' : ''}
+                    title="查看授权凭证">
+                <i class="fas fa-key"></i> 授权凭证
+            </button>
             <button class="btn btn-sm btn-primary me-1" onclick="authorizeEmployee('${employee.id}')" 
                     ${employee.auth_status === 'authorized' ? 'disabled' : ''}>
-                <i class="fas fa-key"></i> 授权
+                <i class="fas fa-user-check"></i> 授权
             </button>
             <button class="btn btn-sm btn-success me-1" onclick="refreshEmployee('${employee.id}')" 
                     ${employee.auth_status !== 'authorized' ? 'disabled' : ''}>
@@ -1503,8 +1464,19 @@ async function processAuthCode(employeeId) {
             return;
         }
         
-        // 使用授权码获取访问令牌
-        const tokenResult = await douyinAuth.getAccessToken(authCode);
+        // 使用后端API获取访问令牌
+        const response = await fetch('/api/auth/access-token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                code: authCode,
+                employeeId: employeeId
+            })
+        });
+        
+        const tokenResult = await response.json();
         
         if (!tokenResult.success) {
             logManager.addLog(`获取访问令牌失败: ${tokenResult.message}`, 'error');
@@ -1515,37 +1487,13 @@ async function processAuthCode(employeeId) {
         const tokenData = tokenResult.data;
         logManager.addLog(`成功获取访问令牌，OpenID: ${tokenData.open_id}`, 'success');
         
-        // 获取用户信息
-        const userInfoResult = await douyinAuth.getUserInfo(tokenData.access_token, tokenData.open_id);
+        // 后端已经自动获取了用户信息并保存，直接使用返回的数据
+        if (tokenData.userInfo) {
+            logManager.addLog(`获取用户信息成功: ${tokenData.userInfo.nickname}`, 'success');
+        }
         
-        if (userInfoResult.success) {
-            const userInfo = userInfoResult.data;
-            logManager.addLog(`获取用户信息成功: ${userInfo.nickname}`, 'success');
-            
-            // 更新员工信息
-            await databaseManager.updateEmployee(employeeId, {
-                auth_status: 'authorized',
-                access_token: tokenData.access_token,
-                refresh_token: tokenData.refresh_token,
-                open_id: tokenData.open_id,
-                nickname: userInfo.nickname,
-                avatar: userInfo.avatar,
-                followers_count: userInfo.followers_count || 0,
-                total_favorited: userInfo.total_favorited || 0
-            });
-            
-            // 保存授权令牌到数据库
-            await databaseManager.saveAuthToken(employeeId, {
-                access_token: tokenData.access_token,
-                refresh_token: tokenData.refresh_token,
-                open_id: tokenData.open_id,
-                scope: tokenData.scope || '',
-                expires_in: tokenData.expires_in || 0,
-                refresh_expires_in: tokenData.refresh_expires_in || 0
-            });
-            
-            logManager.addLog(`员工 ${employee.name} 授权成功，授权令牌已保存`, 'success');
-            showNotification(`员工 ${employee.name} 授权成功！`, 'success');
+        logManager.addLog(`员工 ${employee.name} 授权成功，授权令牌已保存`, 'success');
+        showNotification(`员工 ${employee.name} 授权成功！`, 'success');
             
             // 关闭模态框
             const modal = bootstrap.Modal.getInstance(document.querySelector('.modal.show'));
@@ -1584,11 +1532,6 @@ async function processAuthCode(employeeId) {
                     }
                 }, 2000);
             }
-            
-        } else {
-            logManager.addLog(`获取用户信息失败: ${userInfoResult.message}`, 'error');
-            showNotification(`获取用户信息失败: ${userInfoResult.message}`, 'error');
-        }
         
     } catch (error) {
         console.error('处理授权码失败:', error);
@@ -2391,5 +2334,121 @@ async function initializeApp() {
     } catch (error) {
         logManager.logError(error, '应用初始化失败');
         showNotification('系统初始化失败，请检查后端服务是否启动', 'error');
+    }
+}
+
+// 授权凭证相关函数
+
+// 显示授权凭证信息
+async function showAuthCredentials(employeeId) {
+    try {
+        // 获取员工信息
+        const employee = await databaseManager.getEmployee(employeeId);
+        if (!employee) {
+            showNotification('员工信息不存在', 'error');
+            return;
+        }
+        
+        // 获取授权令牌信息
+        const authToken = await databaseManager.getAuthToken(employeeId);
+        
+        // 填充员工信息
+        document.getElementById('authEmployeeName').textContent = employee.name;
+        document.getElementById('authDouyinAccount').textContent = '@' + employee.douyin_account;
+        
+        // 设置授权状态
+        const statusElement = document.getElementById('authStatus');
+        let statusBadge = '';
+        switch (employee.auth_status) {
+            case 'authorized':
+                statusBadge = '<span class="badge bg-success">已授权</span>';
+                break;
+            case 'pending':
+                statusBadge = '<span class="badge bg-warning">待授权</span>';
+                break;
+            case 'expired':
+                statusBadge = '<span class="badge bg-danger">已过期</span>';
+                break;
+            case 'revoked':
+                statusBadge = '<span class="badge bg-secondary">已撤销</span>';
+                break;
+            default:
+                statusBadge = '<span class="badge bg-secondary">未知</span>';
+        }
+        statusElement.innerHTML = statusBadge;
+        
+        // 填充授权凭证信息
+        document.getElementById('authCode').value = authToken?.code || '';
+        document.getElementById('authAccessToken').value = authToken?.access_token || '';
+        document.getElementById('authRefreshToken').value = authToken?.refresh_token || '';
+        document.getElementById('authScope').value = authToken?.scope || '';
+        
+        // 显示授权凭证区域
+        document.getElementById('authCredentialsSection').style.display = 'block';
+        
+        // 滚动到授权凭证区域
+        document.getElementById('authCredentialsSection').scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'start' 
+        });
+        
+        logManager.addLog(`显示员工 ${employee.name} 的授权凭证信息`, 'info');
+        
+    } catch (error) {
+        console.error('显示授权凭证失败:', error);
+        showNotification('获取授权凭证信息失败: ' + error.message, 'error');
+    }
+}
+
+// 隐藏授权凭证信息
+function hideAuthCredentials() {
+    document.getElementById('authCredentialsSection').style.display = 'none';
+    
+    // 清空表单
+    document.getElementById('authEmployeeName').textContent = '-';
+    document.getElementById('authDouyinAccount').textContent = '-';
+    document.getElementById('authStatus').innerHTML = '-';
+    document.getElementById('authCode').value = '';
+    document.getElementById('authAccessToken').value = '';
+    document.getElementById('authRefreshToken').value = '';
+    document.getElementById('authScope').value = '';
+    
+    logManager.addLog('隐藏授权凭证信息', 'info');
+}
+
+// 复制授权字段内容
+function copyAuthField(fieldId) {
+    const field = document.getElementById(fieldId);
+    if (!field || !field.value) {
+        showNotification('没有可复制的内容', 'warning');
+        return;
+    }
+    
+    // 创建临时文本区域来复制内容
+    const tempTextArea = document.createElement('textarea');
+    tempTextArea.value = field.value;
+    document.body.appendChild(tempTextArea);
+    tempTextArea.select();
+    
+    try {
+        document.execCommand('copy');
+        
+        // 获取字段名称
+        const fieldNames = {
+            'authCode': '授权码',
+            'authAccessToken': '访问令牌',
+            'authRefreshToken': '刷新令牌',
+            'authScope': '授权范围'
+        };
+        
+        const fieldName = fieldNames[fieldId] || '内容';
+        showNotification(`${fieldName}已复制到剪贴板`, 'success');
+        logManager.addLog(`复制${fieldName}到剪贴板`, 'info');
+        
+    } catch (err) {
+        console.error('复制失败:', err);
+        showNotification('复制失败，请手动选择复制', 'error');
+    } finally {
+        document.body.removeChild(tempTextArea);
     }
 }
