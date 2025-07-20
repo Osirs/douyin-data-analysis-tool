@@ -11,6 +11,13 @@ CREATE TABLE IF NOT EXISTS employees (
     position VARCHAR(100) DEFAULT '' COMMENT '职位',
     douyin_account VARCHAR(100) DEFAULT '' COMMENT '抖音账号',
     auth_status ENUM('pending', 'authorized', 'expired', 'revoked') DEFAULT 'pending' COMMENT '授权状态',
+    fans_count BIGINT DEFAULT 0 COMMENT '粉丝数',
+    like_count BIGINT DEFAULT 0 COMMENT '点赞数',
+    comment_count BIGINT DEFAULT 0 COMMENT '评论数',
+    share_count BIGINT DEFAULT 0 COMMENT '分享数',
+    home_pv BIGINT DEFAULT 0 COMMENT '主页访问数',
+    video_count INT DEFAULT 0 COMMENT '视频数量',
+    last_sync_time TIMESTAMP NULL COMMENT '最后同步时间',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     INDEX idx_auth_status (auth_status),
@@ -41,9 +48,13 @@ CREATE TABLE IF NOT EXISTS user_data (
     open_id VARCHAR(100) NOT NULL COMMENT '用户openid',
     nickname VARCHAR(200) DEFAULT '' COMMENT '昵称',
     avatar_url TEXT COMMENT '头像URL',
-    follower_count BIGINT DEFAULT 0 COMMENT '粉丝数',
+    fans_count BIGINT DEFAULT 0 COMMENT '粉丝数',
     following_count BIGINT DEFAULT 0 COMMENT '关注数',
     total_favorited BIGINT DEFAULT 0 COMMENT '获赞总数',
+    like_count BIGINT DEFAULT 0 COMMENT '点赞数',
+    comment_count BIGINT DEFAULT 0 COMMENT '评论数',
+    share_count BIGINT DEFAULT 0 COMMENT '分享数',
+    home_pv BIGINT DEFAULT 0 COMMENT '主页访问数',
     video_count INT DEFAULT 0 COMMENT '视频数量',
     data_date DATE NOT NULL COMMENT '数据日期',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -109,6 +120,20 @@ INSERT INTO system_config (config_key, config_value, description) VALUES
 ('max_retry_count', '3', '最大重试次数')
 ON DUPLICATE KEY UPDATE config_value = VALUES(config_value);
 
+-- 用户视频统计表
+CREATE TABLE IF NOT EXISTS user_video_stats (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    employee_id VARCHAR(50) NOT NULL COMMENT '员工ID',
+    stat_date DATE NOT NULL COMMENT '统计日期',
+    daily_publish_count INT DEFAULT 0 COMMENT '每日发布内容数',
+    daily_new_play_count BIGINT DEFAULT 0 COMMENT '每日新增视频播放数',
+    total_publish_count INT DEFAULT 0 COMMENT '总发布内容数',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+    UNIQUE KEY uk_employee_stat_date (employee_id, stat_date),
+    INDEX idx_stat_date (stat_date)
+) ENGINE=InnoDB COMMENT='用户视频统计表';
+
 -- 创建视图：员工数据概览
 CREATE OR REPLACE VIEW employee_overview AS
 SELECT 
@@ -118,23 +143,16 @@ SELECT
     e.position,
     e.douyin_account,
     e.auth_status,
-    ud.follower_count,
-    ud.total_favorited,
-    ud.video_count,
-    ud.data_date as last_data_date,
+    e.fans_count,
+    e.like_count,
+    e.comment_count,
+    e.share_count,
+    e.home_pv,
+    e.video_count,
+    e.last_sync_time,
     e.created_at,
     e.updated_at
-FROM employees e
-LEFT JOIN (
-    SELECT 
-        employee_id,
-        follower_count,
-        total_favorited,
-        video_count,
-        data_date,
-        ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY data_date DESC) as rn
-    FROM user_data
-) ud ON e.id = ud.employee_id AND ud.rn = 1;
+FROM employees e;
 
 COMMIT;
 

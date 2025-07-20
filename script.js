@@ -1,5 +1,10 @@
 // 抖音数据推送及分析工具 JavaScript
 
+// 全局变量
+let databaseManager;
+let douyinAuth;
+let douyinAPI;
+
 // API客户端类
 class APIClient {
     constructor() {
@@ -79,7 +84,14 @@ class DatabaseManager {
             return response.data;
         } catch (error) {
             console.error('获取员工信息失败:', error);
-            return null;
+            // 如果API失败，尝试从所有员工中查找
+            try {
+                const allEmployees = await this.getAllEmployees();
+                return allEmployees.find(emp => emp.id == employeeId) || null;
+            } catch (fallbackError) {
+                console.error('备用查找也失败:', fallbackError);
+                return null;
+            }
         }
     }
 
@@ -118,10 +130,7 @@ class DatabaseManager {
     // 保存授权令牌
     async saveAuthToken(employeeId, tokenData) {
         try {
-            await this.api.post('/auth-tokens', {
-                employeeId,
-                ...tokenData
-            });
+            await this.api.post(`/auth/token/${employeeId}`, tokenData);
         } catch (error) {
             console.error('保存授权令牌失败:', error);
             throw error;
@@ -131,7 +140,7 @@ class DatabaseManager {
     // 获取授权令牌
     async getAuthToken(employeeId) {
         try {
-            const response = await this.api.get(`/auth-tokens/${employeeId}`);
+            const response = await this.api.get(`/auth/token/${employeeId}`);
             return response.data;
         } catch (error) {
             console.error('获取授权令牌失败:', error);
@@ -186,6 +195,43 @@ class DatabaseManager {
         } catch (error) {
             console.error('获取视频数据失败:', error);
             return [];
+        }
+    }
+
+    // 保存用户视频统计数据
+    async saveUserVideoStats(employeeId, statsData) {
+        try {
+            await this.api.post('/user-video-stats', {
+                employeeId,
+                ...statsData
+            });
+        } catch (error) {
+            console.error('保存用户视频统计数据失败:', error);
+            throw error;
+        }
+    }
+
+    // 获取用户视频统计数据
+    async getUserVideoStats(employeeId, days = 30) {
+        try {
+            const response = await this.api.get(`/video-stats/${employeeId}?days=${days}`);
+            return response.data || [];
+        } catch (error) {
+            console.error('获取用户视频统计数据失败:', error);
+            return [];
+        }
+    }
+
+    // 手动同步数据
+    async manualSyncData(employeeId = null) {
+        try {
+            const response = await this.api.post('/sync/manual', {
+                employeeId
+            });
+            return response;
+        } catch (error) {
+            console.error('手动同步数据失败:', error);
+            throw error;
         }
     }
 
@@ -266,23 +312,36 @@ class DatabaseManager {
 // 抖音授权类
 class DouyinAuth {
     constructor() {
-        this.clientKey = 'your_client_key';
-        this.clientSecret = 'your_client_secret';
-        this.redirectUri = window.location.origin + window.location.pathname;
-        this.scope = 'user_info,video.list,fans.list,following.list,video.data';
+        this.clientKey = 'awc23rrtn8rtoqrk';
+        this.clientSecret = 'f4a6b2c8e1d3f7a9b5c2e8f1a4d7b9c3';
+        // 使用抖音官方回调地址
+        this.redirectUri = 'https://api.snssdk.com/oauth/authorize/callback/';
+        this.scope = 'user_info,video.list,video.data,data.external.user,video.list.bind';
+        this.optionalScope = '';
     }
 
-    // 获取授权URL
+    // 获取授权URL - 根据抖音文档更新
     getAuthUrl(employeeId) {
         const params = new URLSearchParams({
             client_key: this.clientKey,
             response_type: 'code',
             scope: this.scope,
-            redirect_uri: this.redirectUri,
-            state: employeeId
+            redirect_uri: this.redirectUri
         });
         
-        return `https://open.douyin.com/platform/oauth/connect/?${params.toString()}`;
+        // 添加可选的state参数
+        if (employeeId) {
+            params.append('state', employeeId);
+        }
+        
+        // 如果有可选权限，添加到参数中
+        if (this.optionalScope && this.optionalScope.trim()) {
+            params.append('optionalScope', this.optionalScope);
+        }
+        
+        const authUrl = `https://open.douyin.com/platform/oauth/connect/?${params.toString()}`;
+        logManager.addLog(`生成授权URL: ${authUrl}`, 'info');
+        return authUrl;
     }
 
     // 获取访问令牌
@@ -368,15 +427,17 @@ class DouyinAPI {
     // 获取用户信息
     async getUserInfo(openId, accessToken) {
         try {
+            // 根据抖音官方API文档，使用form-urlencoded格式
+            const formData = new URLSearchParams();
+            formData.append('open_id', openId);
+            formData.append('access_token', accessToken);
+            
             const response = await fetch(`${this.baseURL}/oauth/userinfo/`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/x-www-form-urlencoded'
                 },
-                body: JSON.stringify({
-                    open_id: openId,
-                    access_token: accessToken
-                })
+                body: formData
             });
 
             const data = await response.json();
@@ -468,43 +529,256 @@ class DouyinAPI {
         }
     }
 
-    // 获取粉丝数据
-    async getFansData(openId, accessToken, days) {
-        // 模拟API调用
-        return {
-            success: true,
-            data: {
-                total_fans: Math.floor(Math.random() * 50000) + 1000
+    // 获取用户粉丝数
+    async getUserFansCount(openId, accessToken) {
+        try {
+            const formData = new URLSearchParams();
+            formData.append('open_id', openId);
+            formData.append('access_token', accessToken);
+            
+            const response = await fetch('https://open.douyin.com/api/douyin/v1/user/fans/count/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: formData
+            });
+
+            const data = await response.json();
+            
+            if (data.error_code === 0) {
+                return {
+                    success: true,
+                    data: data.data
+                };
+            } else {
+                return {
+                    success: false,
+                    message: data.description || '获取粉丝数失败'
+                };
             }
-        };
+        } catch (error) {
+            return {
+                success: false,
+                message: error.message
+            };
+        }
     }
 
-    // 获取视频数据
+    // 获取用户点赞数
+    async getUserLikeCount(openId, accessToken) {
+        try {
+            const formData = new URLSearchParams();
+            formData.append('open_id', openId);
+            formData.append('access_token', accessToken);
+            
+            const response = await fetch('https://open.douyin.com/api/douyin/v1/user/like/number/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: formData
+            });
+
+            const data = await response.json();
+            
+            if (data.error_code === 0) {
+                return {
+                    success: true,
+                    data: data.data
+                };
+            } else {
+                return {
+                    success: false,
+                    message: data.description || '获取点赞数失败'
+                };
+            }
+        } catch (error) {
+            return {
+                success: false,
+                message: error.message
+            };
+        }
+    }
+
+    // 获取用户评论数
+    async getUserCommentCount(openId, accessToken) {
+        try {
+            const formData = new URLSearchParams();
+            formData.append('open_id', openId);
+            formData.append('access_token', accessToken);
+            
+            const response = await fetch('https://open.douyin.com/api/douyin/v1/user/comment/count/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: formData
+            });
+
+            const data = await response.json();
+            
+            if (data.error_code === 0) {
+                return {
+                    success: true,
+                    data: data.data
+                };
+            } else {
+                return {
+                    success: false,
+                    message: data.description || '获取评论数失败'
+                };
+            }
+        } catch (error) {
+            return {
+                success: false,
+                message: error.message
+            };
+        }
+    }
+
+    // 获取用户分享数
+    async getUserShareCount(openId, accessToken) {
+        try {
+            const response = await fetch('https://open.douyin.com/api/douyin/v1/user/share/count/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`
+                },
+                body: JSON.stringify({
+                    open_id: openId,
+                    access_token: accessToken
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.error_code === 0) {
+                return {
+                    success: true,
+                    data: data.data
+                };
+            } else {
+                return {
+                    success: false,
+                    message: data.description || '获取分享数失败'
+                };
+            }
+        } catch (error) {
+            return {
+                success: false,
+                message: error.message
+            };
+        }
+    }
+
+    // 获取用户主页访问数
+    async getUserHomePv(openId, accessToken) {
+        try {
+            const response = await fetch('https://open.douyin.com/api/douyin/v1/user/home/pv/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`
+                },
+                body: JSON.stringify({
+                    open_id: openId,
+                    access_token: accessToken
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.error_code === 0) {
+                return {
+                    success: true,
+                    data: data.data
+                };
+            } else {
+                return {
+                    success: false,
+                    message: data.description || '获取主页访问数失败'
+                };
+            }
+        } catch (error) {
+            return {
+                success: false,
+                message: error.message
+            };
+        }
+    }
+
+    // 获取用户视频状态
+    async getUserVideoStatus(openId, accessToken) {
+        try {
+            const response = await fetch('https://open.douyin.com/api/douyin/v1/user/video/status/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`
+                },
+                body: JSON.stringify({
+                    open_id: openId,
+                    access_token: accessToken
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.error_code === 0) {
+                return {
+                    success: true,
+                    data: data.data
+                };
+            } else {
+                return {
+                    success: false,
+                    message: data.description || '获取视频状态失败'
+                };
+            }
+        } catch (error) {
+            return {
+                success: false,
+                message: error.message
+            };
+        }
+    }
+
+    // 获取粉丝数据（保留兼容性）
+    async getFansData(openId, accessToken, days) {
+        return await this.getUserFansCount(openId, accessToken);
+    }
+
+    // 获取视频数据（保留兼容性）
     async getVideoData(openId, accessToken, days) {
-        // 模拟API调用
+        const [videoStatus, likeData, commentData, shareData] = await Promise.all([
+            this.getUserVideoStatus(openId, accessToken),
+            this.getUserLikeCount(openId, accessToken),
+            this.getUserCommentCount(openId, accessToken),
+            this.getUserShareCount(openId, accessToken)
+        ]);
+        
         return {
             success: true,
             data: {
-                total_videos: Math.floor(Math.random() * 100) + 10,
-                total_likes: Math.floor(Math.random() * 100000) + 5000,
-                total_comments: Math.floor(Math.random() * 10000) + 500,
-                total_shares: Math.floor(Math.random() * 5000) + 200
+                total_videos: videoStatus.success ? videoStatus.data.video_count : 0,
+                total_likes: likeData.success ? likeData.data.like_count : 0,
+                total_comments: commentData.success ? commentData.data.comment_count : 0,
+                total_shares: shareData.success ? shareData.data.share_count : 0
             }
         };
     }
 }
 
-// 全局变量
-let databaseManager;
-let douyinAuth;
-let douyinAPI;
-
 // 打开数据分析报告（多维表格）
 function openAnalysisReport() {
+    logManager.addLog('用户点击了打开数据分析看板按钮', 'info');
+    
     const url = 'https://ocn8o3ghsdb2.feishu.cn/base/R238bPjJbag3gKs4vcocdd8Bnlg?from=from_copylink';
     window.open(url, '_blank');
     
-    // 显示成功提示
+    logManager.addLog('已打开数据分析看板', 'success');
     showNotification('正在打开飞书多维表格...', 'info');
 }
 
@@ -514,81 +788,37 @@ async function manualSync() {
     const originalText = syncBtn.innerHTML;
     
     try {
+        logManager.addLog('用户点击了手动同步数据按钮', 'info');
+        
         // 禁用按钮并显示加载状态
         syncBtn.disabled = true;
         syncBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>同步中...';
         
         showNotification('开始同步数据...', 'info');
+        logManager.addLog('开始同步抖音数据...', 'info');
         
-        // 获取所有已授权的员工
-        const employees = await databaseManager.getAllEmployees();
-        const authorizedEmployees = employees.filter(emp => emp.auth_status === 'authorized' && emp.access_token);
-        
-        if (authorizedEmployees.length === 0) {
-            showNotification('没有已授权的员工账号，无法同步数据', 'warning');
-            return;
-        }
-        
-        // 准备用户列表
-        const userList = authorizedEmployees.map(emp => ({
-            employeeId: emp.id,
-            openId: emp.open_id,
-            accessToken: emp.access_token
-        }));
-        
-        // 批量获取用户数据
-        const result = await douyinAPI.batchGetUserData(userList, 7);
+        // 调用新的同步API
+        const result = await databaseManager.manualSyncData();
         
         if (result.success) {
-            // 保存同步结果
-            const syncRecord = {
-                timestamp: new Date().toISOString(),
-                totalUsers: userList.length,
-                successCount: result.data.results.length,
-                failedCount: result.data.errors.length,
-                results: result.data.results,
-                errors: result.data.errors
-            };
-            
-            await databaseManager.addSyncHistory(syncRecord);
-            
-            // 更新员工数据
-            for (const userResult of result.data.results) {
-                const employee = await databaseManager.getEmployee(userResult.employeeId);
-                if (employee) {
-                    // 更新员工的数据统计
-                    const userData = userResult.data;
-                    const updatedEmployee = {
-                        ...employee,
-                        last_sync_time: new Date().toISOString(),
-                        fans_count: userData.fansData?.total_fans || employee.fans_count || 0,
-                        video_count: userData.videoStatus?.total_videos || employee.video_count || 0,
-                        like_count: userData.likeData?.total_likes || employee.like_count || 0,
-                        comment_count: userData.commentData?.total_comments || employee.comment_count || 0,
-                        share_count: userData.shareData?.total_shares || employee.share_count || 0,
-                        profile_views: userData.profileData?.total_views || employee.profile_views || 0
-                    };
-                    
-                    await databaseManager.updateEmployee(userResult.employeeId, updatedEmployee);
-                    
-                    // 保存用户数据到数据库
-                    await databaseManager.saveUserData(userResult.employeeId, userData);
-                }
-            }
-            
+            // 更新最后同步时间
             updateLastSyncTime();
-            loadEmployeeData();
             
-            const message = `数据同步完成！成功同步 ${result.data.results.length} 个账号，${result.data.errors.length} 个失败`;
-            showNotification(message, result.data.errors.length > 0 ? 'warning' : 'success');
+            // 重新加载员工数据
+            await loadEmployeeData();
+            
+            const message = result.message || '数据同步完成！';
+            showNotification(message, 'success');
+            logManager.addLog(message, 'success');
             
         } else {
-            throw new Error(result.message);
+            throw new Error(result.message || '同步失败');
         }
         
     } catch (error) {
         console.error('数据同步失败:', error);
         showNotification('数据同步失败: ' + error.message, 'error');
+        logManager.addLog('数据同步失败: ' + error.message, 'error');
     } finally {
         // 恢复按钮状态
         syncBtn.disabled = false;
@@ -612,8 +842,10 @@ function updateLastSyncTime() {
 
 // 添加员工
 function addEmployee() {
+    logManager.addLog('用户点击了添加员工按钮', 'info');
     const modal = new bootstrap.Modal(document.getElementById('addEmployeeModal'));
     modal.show();
+    logManager.addLog('显示添加员工对话框', 'info');
 }
 
 // 保存员工信息
@@ -651,9 +883,43 @@ async function saveEmployee() {
         // 重新加载员工数据
         await loadEmployeeData();
         
-        // 关闭模态框
-        const modal = bootstrap.Modal.getInstance(document.getElementById('addEmployeeModal'));
-        modal.hide();
+        // 关闭模态框 - 彻底修复半透明阴影问题
+        const modalElement = document.getElementById('addEmployeeModal');
+        const modal = bootstrap.Modal.getInstance(modalElement);
+        
+        // 立即清理模态框状态
+        const cleanupModal = () => {
+            // 移除所有可能的backdrop
+            document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
+                backdrop.remove();
+            });
+            
+            // 重置body样式
+            document.body.classList.remove('modal-open');
+            document.body.style.overflow = '';
+            document.body.style.paddingRight = '';
+            document.body.style.marginRight = '';
+            
+            // 确保模态框隐藏
+            modalElement.style.display = 'none';
+            modalElement.classList.remove('show');
+            modalElement.setAttribute('aria-hidden', 'true');
+            modalElement.removeAttribute('aria-modal');
+            modalElement.removeAttribute('role');
+        };
+        
+        if (modal) {
+            modal.hide();
+            // 监听隐藏完成事件
+            modalElement.addEventListener('hidden.bs.modal', cleanupModal, { once: true });
+        } else {
+            // 直接清理
+            cleanupModal();
+        }
+        
+        // 额外的延时清理，确保彻底移除
+        setTimeout(cleanupModal, 100);
+        setTimeout(cleanupModal, 500);
         
         // 清空表单
         document.getElementById('addEmployeeForm').reset();
@@ -681,14 +947,37 @@ async function loadEmployeeData() {
         tbody.innerHTML = '';
         
         if (employees.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">暂无员工数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted">暂无员工数据</td></tr>';
             return;
         }
         
-        // 添加员工行
-        employees.forEach(employee => {
-            addEmployeeToTable(employee);
-        });
+        // 为每个员工获取授权令牌信息并添加到表格
+        for (const employee of employees) {
+            try {
+                // 获取授权令牌信息
+                const authToken = await databaseManager.getAuthToken(employee.id);
+                
+                // 将授权信息合并到员工对象中
+                const employeeWithAuth = {
+                    ...employee,
+                    code: authToken?.code || null,
+                    access_token: authToken?.access_token || null,
+                    refresh_token: authToken?.refresh_token || null,
+                    scope: authToken?.scope || null,
+                    open_id: authToken?.open_id || null,
+                    expires_in: authToken?.expires_in || null
+                };
+                
+                addEmployeeToTable(employeeWithAuth);
+            } catch (error) {
+                // 如果是404错误（授权令牌不存在），不记录错误日志，这是正常情况
+                if (!error.message.includes('404')) {
+                    console.error(`获取员工 ${employee.id} 的授权信息失败:`, error);
+                }
+                // 即使获取授权信息失败，也要显示员工基本信息
+                addEmployeeToTable(employee);
+            }
+        }
         
     } catch (error) {
         console.error('加载员工数据失败:', error);
@@ -733,13 +1022,74 @@ function addEmployeeToTable(employee) {
         return num.toString();
     };
     
+    // 格式化最后同步时间
+    const lastSyncTime = employee.last_sync_time ? new Date(employee.last_sync_time).toLocaleString('zh-CN') : '-';
+    
+    // 授权详情显示
+    let authDetails = '';
+    if (employee.auth_status === 'authorized' && employee.access_token) {
+        const maskedToken = employee.access_token.substring(0, 8) + '...' + employee.access_token.substring(employee.access_token.length - 8);
+        authDetails = `
+            <button class="btn btn-sm btn-link text-info" onclick="showAuthDetails('${employee.id}')" 
+                    title="查看授权详情">
+                <i class="fas fa-info-circle"></i> 详情
+            </button>
+            <div class="small text-muted mt-1">
+                <div>范围: ${employee.scope || 'N/A'}</div>
+                <div>Token: ${maskedToken}</div>
+            </div>
+        `;
+    } else {
+        authDetails = '<span class="text-muted small">未授权</span>';
+    }
+    
+    // 格式化授权凭证显示
+    const formatAuthCredential = (value, type) => {
+        if (!value) return '<span class="text-muted small">-</span>';
+        
+        if (type === 'token' && value.length > 16) {
+            const masked = value.substring(0, 8) + '...' + value.substring(value.length - 8);
+            return `
+                <div class="d-flex align-items-center">
+                    <span class="small text-truncate" style="max-width: 120px;" title="${value}">${masked}</span>
+                    <button class="btn btn-sm btn-link p-0 ms-1" onclick="copyToClipboard('${value}', '${type}')" title="复制">
+                        <i class="fas fa-copy text-muted"></i>
+                    </button>
+                </div>
+            `;
+        } else {
+            return `
+                <div class="d-flex align-items-center">
+                    <span class="small" title="${value}">${value}</span>
+                    <button class="btn btn-sm btn-link p-0 ms-1" onclick="copyToClipboard('${value}', '${type}')" title="复制">
+                        <i class="fas fa-copy text-muted"></i>
+                    </button>
+                </div>
+            `;
+        }
+    };
+
     row.innerHTML = `
         <td>${employee.name}</td>
         <td>@${employee.douyin_account}</td>
         <td>${statusBadge}</td>
-        <td>${addTime}</td>
+        <td>${formatAuthCredential(employee.code || '', 'code')}</td>
+        <td>${formatAuthCredential(employee.access_token || '', 'token')}</td>
+        <td>${formatAuthCredential(employee.refresh_token || '', 'token')}</td>
+        <td>${formatAuthCredential(employee.scope || '', 'scope')}</td>
+        <td>${authDetails}</td>
         <td>${formatNumber(employee.fans_count || 0)}</td>
-        <td>${employee.video_count || 0}</td>
+        <td>${formatNumber(employee.like_count || 0)}</td>
+        <td>${formatNumber(employee.comment_count || 0)}</td>
+        <td>${formatNumber(employee.share_count || 0)}</td>
+        <td>${formatNumber(employee.home_pv || 0)}</td>
+        <td>
+            <button class="btn btn-sm btn-link text-primary" onclick="showVideoStats('${employee.id}')" 
+                    title="查看视频统计">
+                <i class="fas fa-chart-bar"></i> 查看
+            </button>
+        </td>
+        <td>${lastSyncTime}</td>
         <td>
             <button class="btn btn-sm btn-primary me-1" onclick="authorizeEmployee('${employee.id}')" 
                     ${employee.auth_status === 'authorized' ? 'disabled' : ''}>
@@ -749,9 +1099,12 @@ function addEmployeeToTable(employee) {
                     ${employee.auth_status !== 'authorized' ? 'disabled' : ''}>
                 <i class="fas fa-sync"></i> 刷新
             </button>
-            <button class="btn btn-sm btn-danger" onclick="revokeEmployee('${employee.id}')" 
+            <button class="btn btn-sm btn-warning me-1" onclick="revokeEmployee('${employee.id}')" 
                     ${employee.auth_status === 'pending' ? 'disabled' : ''}>
                 <i class="fas fa-times"></i> 撤销
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="deleteEmployee('${employee.id}')">
+                <i class="fas fa-trash"></i> 删除
             </button>
         </td>
     `;
@@ -762,123 +1115,662 @@ function addEmployeeToTable(employee) {
 // 授权员工账号
 async function authorizeEmployee(employeeId) {
     try {
+        logManager.addLog(`开始为员工ID ${employeeId} 进行授权`, 'info');
+        
         const employee = await databaseManager.getEmployee(employeeId);
         if (!employee) {
+            logManager.addLog('员工信息不存在', 'error');
             showNotification('员工信息不存在', 'error');
             return;
         }
         
-        // 生成授权URL并跳转
+        logManager.addLog(`为员工 ${employee.name} 生成授权URL`, 'info');
+        
+        // 生成授权URL
         const authUrl = douyinAuth.getAuthUrl(employeeId);
         
+        // 显示授权模态框
+        const authModal = document.createElement('div');
+        authModal.className = 'modal fade';
+        authModal.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">抖音账号授权 - ${employee.name}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            请按照以下步骤完成抖音账号授权：
+                        </div>
+                        
+                        <!-- 步骤1：授权链接 -->
+                        <div class="mb-4">
+                            <h6><i class="fas fa-step-forward me-2"></i>步骤1：访问授权链接</h6>
+                            <div class="mb-3">
+                                <label class="form-label">授权链接：</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" value="${authUrl}" readonly id="authUrlInput">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="copyAuthUrl()">
+                                        <i class="fas fa-copy"></i> 复制
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="text-center">
+                                <button class="btn btn-primary" onclick="openAuthUrl('${authUrl}')">
+                                    <i class="fas fa-external-link-alt me-2"></i>直接跳转授权
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        
+                        <!-- 步骤2：输入授权码 -->
+                        <div class="mb-4">
+                            <h6><i class="fas fa-step-forward me-2"></i>步骤2：输入授权码</h6>
+                            <div class="alert alert-warning">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                完成授权后，请将获得的授权码(code)粘贴到下方输入框中：
+                            </div>
+                            <div class="mb-3">
+                                <label for="authCodeInput" class="form-label">授权码(Code)：</label>
+                                <input type="text" class="form-control" id="authCodeInput" placeholder="请输入从授权页面获得的授权码">
+                            </div>
+                            <div class="text-center">
+                                <button class="btn btn-success" onclick="processAuthCode('${employeeId}')">
+                                    <i class="fas fa-check me-2"></i>提交授权码
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        
+                        <div class="small text-muted">
+                            <strong>授权参数说明：</strong><br>
+                            • Client Key: ${douyinAuth.clientKey}<br>
+                            • 权限范围: ${douyinAuth.scope}<br>
+                            • 回调地址: ${douyinAuth.redirectUri}<br>
+                            • 状态参数: ${employeeId}
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(authModal);
+        const modal = new bootstrap.Modal(authModal);
+        modal.show();
+        
+        // 模态框关闭时移除元素
+        authModal.addEventListener('hidden.bs.modal', () => {
+            document.body.removeChild(authModal);
+        });
+        
+        logManager.addLog('授权模态框已显示，等待用户输入授权码', 'success');
+        showNotification('请按照步骤完成授权并输入授权码', 'info');
+        
+    } catch (error) {
+        console.error('授权失败:', error);
+        logManager.addLog(`授权失败: ${error.message}`, 'error');
+        showNotification('授权失败: ' + error.message, 'error');
+    }
+}
+
+// 显示授权详情
+async function showAuthDetails(employeeId) {
+    try {
+        logManager.addLog(`获取员工ID ${employeeId} 的授权详情`, 'info');
+        
+        // 获取员工信息和授权令牌
+        const employee = await databaseManager.getEmployee(employeeId);
+        const authToken = await databaseManager.getAuthToken(employeeId);
+        
+        if (!employee) {
+            logManager.addLog('员工信息不存在', 'error');
+            showNotification('员工信息不存在', 'error');
+            return;
+        }
+        
+        // 创建授权详情模态框
+        const authDetailsModal = document.createElement('div');
+        authDetailsModal.className = 'modal fade';
+        authDetailsModal.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">授权详情 - ${employee.name}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6 class="text-primary"><i class="fas fa-user me-2"></i>员工信息</h6>
+                                <table class="table table-sm">
+                                    <tr><td><strong>姓名:</strong></td><td>${employee.name}</td></tr>
+                                    <tr><td><strong>抖音账号:</strong></td><td>@${employee.douyin_account}</td></tr>
+                                    <tr><td><strong>授权状态:</strong></td><td>
+                                        <span class="badge ${
+                                            employee.auth_status === 'authorized' ? 'bg-success' :
+                                            employee.auth_status === 'pending' ? 'bg-warning' :
+                                            employee.auth_status === 'expired' ? 'bg-danger' : 'bg-secondary'
+                                        }">${
+                                            employee.auth_status === 'authorized' ? '已授权' :
+                                            employee.auth_status === 'pending' ? '待授权' :
+                                            employee.auth_status === 'expired' ? '已过期' : '已撤销'
+                                        }</span>
+                                    </td></tr>
+                                    <tr><td><strong>创建时间:</strong></td><td>${new Date(employee.created_at).toLocaleString('zh-CN')}</td></tr>
+                                </table>
+                            </div>
+                            <div class="col-md-6">
+                                <h6 class="text-success"><i class="fas fa-key me-2"></i>授权信息</h6>
+                                ${authToken ? `
+                                    <table class="table table-sm">
+                                        <tr><td><strong>授权范围:</strong></td><td><code>${authToken.scope || 'N/A'}</code></td></tr>
+                                        <tr><td><strong>OpenID:</strong></td><td><code>${authToken.open_id || 'N/A'}</code></td></tr>
+                                        <tr><td><strong>过期时间:</strong></td><td>${authToken.expires_in ? authToken.expires_in + '秒' : 'N/A'}</td></tr>
+                                        <tr><td><strong>授权时间:</strong></td><td>${new Date(authToken.created_at).toLocaleString('zh-CN')}</td></tr>
+                                    </table>
+                                ` : '<p class="text-muted">暂无授权信息</p>'}
+                            </div>
+                        </div>
+                        
+                        ${authToken ? `
+                            <hr>
+                            <h6 class="text-info"><i class="fas fa-lock me-2"></i>访问令牌</h6>
+                            <div class="mb-3">
+                                <label class="form-label">Access Token:</label>
+                                <div class="input-group">
+                                    <input type="password" class="form-control font-monospace" value="${authToken.access_token}" readonly id="accessTokenInput">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="toggleTokenVisibility('accessTokenInput')">
+                                        <i class="fas fa-eye" id="accessTokenEye"></i>
+                                    </button>
+                                    <button class="btn btn-outline-primary" type="button" onclick="copyToClipboard('accessTokenInput', 'Access Token')">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            ${authToken.refresh_token ? `
+                                <div class="mb-3">
+                                    <label class="form-label">Refresh Token:</label>
+                                    <div class="input-group">
+                                        <input type="password" class="form-control font-monospace" value="${authToken.refresh_token}" readonly id="refreshTokenInput">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="toggleTokenVisibility('refreshTokenInput')">
+                                            <i class="fas fa-eye" id="refreshTokenEye"></i>
+                                        </button>
+                                        <button class="btn btn-outline-primary" type="button" onclick="copyToClipboard('refreshTokenInput', 'Refresh Token')">
+                                            <i class="fas fa-copy"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        ` : ''}
+                        
+                        <div class="alert alert-warning mt-3">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <strong>安全提示:</strong> 请妥善保管访问令牌，不要泄露给他人。令牌用于访问抖音API获取数据。
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                        ${authToken ? `
+                            <button type="button" class="btn btn-warning" onclick="refreshAuthToken('${employeeId}')">
+                                <i class="fas fa-sync me-2"></i>刷新令牌
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(authDetailsModal);
+        const modal = new bootstrap.Modal(authDetailsModal);
+        modal.show();
+        
+        // 模态框关闭时移除元素
+        authDetailsModal.addEventListener('hidden.bs.modal', () => {
+            document.body.removeChild(authDetailsModal);
+        });
+        
+        logManager.addLog('授权详情已显示', 'success');
+        
+    } catch (error) {
+        console.error('获取授权详情失败:', error);
+        logManager.addLog(`获取授权详情失败: ${error.message}`, 'error');
+        showNotification('获取授权详情失败: ' + error.message, 'error');
+    }
+}
+
+// 切换令牌可见性
+function toggleTokenVisibility(inputId) {
+    const input = document.getElementById(inputId);
+    const eye = document.getElementById(inputId.replace('Input', 'Eye'));
+    
+    if (input.type === 'password') {
+        input.type = 'text';
+        eye.className = 'fas fa-eye-slash';
+    } else {
+        input.type = 'password';
+        eye.className = 'fas fa-eye';
+    }
+}
+
+// 复制到剪贴板
+function copyToClipboard(inputIdOrValue, tokenType) {
+    let textToCopy = '';
+    
+    // 检查是否是元素ID还是直接的值
+    const input = document.getElementById(inputIdOrValue);
+    if (input) {
+        // 如果是元素ID，从元素中获取值
+        input.select();
+        input.setSelectionRange(0, 99999);
+        textToCopy = input.value;
+    } else {
+        // 如果不是元素ID，则直接使用传入的值
+        textToCopy = inputIdOrValue;
+    }
+    
+    if (!textToCopy) {
+        showNotification('没有内容可复制', 'warning');
+        return;
+    }
+    
+    try {
+        // 优先使用现代API
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                showNotification(`${tokenType} 已复制到剪贴板`, 'success');
+                logManager.addLog(`${tokenType} 已复制到剪贴板`, 'info');
+            }).catch(() => {
+                // 如果现代API失败，尝试传统方法
+                fallbackCopy(textToCopy, tokenType);
+            });
+        } else {
+            // 如果不支持现代API，使用传统方法
+            fallbackCopy(textToCopy, tokenType);
+        }
+    } catch (err) {
+        fallbackCopy(textToCopy, tokenType);
+    }
+}
+
+// 传统复制方法
+function fallbackCopy(text, tokenType) {
+    try {
+        // 创建临时文本区域
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        showNotification(`${tokenType} 已复制到剪贴板`, 'success');
+        logManager.addLog(`${tokenType} 已复制到剪贴板`, 'info');
+    } catch (err) {
+        showNotification('复制失败，请手动复制', 'error');
+        logManager.addLog(`复制失败: ${err.message}`, 'error');
+    }
+}
+
+// 复制授权链接
+function copyAuthUrl() {
+    const authUrlInput = document.getElementById('authUrlInput');
+    if (authUrlInput) {
+        authUrlInput.select();
+        authUrlInput.setSelectionRange(0, 99999); // 移动端兼容
+        
+        try {
+            document.execCommand('copy');
+            showNotification('授权链接已复制到剪贴板', 'success');
+            logManager.addLog('授权链接已复制到剪贴板', 'info');
+        } catch (err) {
+            // 如果execCommand不支持，尝试使用现代API
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(authUrlInput.value).then(() => {
+                    showNotification('授权链接已复制到剪贴板', 'success');
+                    logManager.addLog('授权链接已复制到剪贴板', 'info');
+                }).catch(() => {
+                    showNotification('复制失败，请手动复制', 'error');
+                });
+            } else {
+                showNotification('复制失败，请手动复制', 'error');
+            }
+        }
+    }
+}
+
+// 打开授权链接
+function openAuthUrl(authUrl) {
+    try {
         // 在新窗口中打开授权页面
         const authWindow = window.open(authUrl, 'douyinAuth', 'width=600,height=700,scrollbars=yes,resizable=yes');
         
         if (!authWindow) {
-            showNotification('无法打开授权窗口，请检查浏览器弹窗设置', 'error');
+            logManager.addLog('无法打开授权窗口，可能被浏览器阻止', 'error');
+            showNotification('无法打开授权窗口，请检查浏览器弹窗设置或手动复制链接打开', 'error');
             return;
         }
+        
+        logManager.addLog('授权窗口已打开，等待用户授权', 'success');
+        showNotification('授权窗口已打开，请在新窗口中完成授权', 'info');
         
         // 监听授权窗口关闭
         const checkClosed = setInterval(() => {
             if (authWindow.closed) {
                 clearInterval(checkClosed);
-                // 检查授权结果
-                setTimeout(async () => {
-                    await loadEmployeeData();
-                }, 1000);
+                logManager.addLog('授权窗口已关闭，建议刷新页面查看授权结果', 'info');
+                showNotification('授权窗口已关闭，请刷新页面查看授权结果', 'info');
             }
         }, 1000);
         
-        showNotification('正在跳转到抖音授权页面...', 'info');
+    } catch (error) {
+        console.error('打开授权窗口失败:', error);
+        logManager.addLog('打开授权窗口失败: ' + error.message, 'error');
+        showNotification('打开授权窗口失败，请手动复制链接打开', 'error');
+    }
+}
+
+// 处理用户输入的授权码
+async function processAuthCode(employeeId) {
+    try {
+        const authCodeInput = document.getElementById('authCodeInput');
+        const authCode = authCodeInput ? authCodeInput.value.trim() : '';
+        
+        if (!authCode) {
+            showNotification('请输入授权码', 'warning');
+            return;
+        }
+        
+        logManager.addLog(`开始处理员工ID ${employeeId} 的授权码: ${authCode}`, 'info');
+        
+        // 获取员工信息
+        const employee = await databaseManager.getEmployee(employeeId);
+        if (!employee) {
+            logManager.addLog('员工信息不存在', 'error');
+            showNotification('员工信息不存在', 'error');
+            return;
+        }
+        
+        // 使用授权码获取访问令牌
+        const tokenResult = await douyinAuth.getAccessToken(authCode);
+        
+        if (!tokenResult.success) {
+            logManager.addLog(`获取访问令牌失败: ${tokenResult.message}`, 'error');
+            showNotification(`获取访问令牌失败: ${tokenResult.message}`, 'error');
+            return;
+        }
+        
+        const tokenData = tokenResult.data;
+        logManager.addLog(`成功获取访问令牌，OpenID: ${tokenData.open_id}`, 'success');
+        
+        // 获取用户信息
+        const userInfoResult = await douyinAuth.getUserInfo(tokenData.access_token, tokenData.open_id);
+        
+        if (userInfoResult.success) {
+            const userInfo = userInfoResult.data;
+            logManager.addLog(`获取用户信息成功: ${userInfo.nickname}`, 'success');
+            
+            // 更新员工信息
+            await databaseManager.updateEmployee(employeeId, {
+                auth_status: 'authorized',
+                access_token: tokenData.access_token,
+                refresh_token: tokenData.refresh_token,
+                open_id: tokenData.open_id,
+                nickname: userInfo.nickname,
+                avatar: userInfo.avatar,
+                followers_count: userInfo.followers_count || 0,
+                total_favorited: userInfo.total_favorited || 0
+            });
+            
+            // 保存授权令牌到数据库
+            await databaseManager.saveAuthToken(employeeId, {
+                access_token: tokenData.access_token,
+                refresh_token: tokenData.refresh_token,
+                open_id: tokenData.open_id,
+                scope: tokenData.scope || '',
+                expires_in: tokenData.expires_in || 0,
+                refresh_expires_in: tokenData.refresh_expires_in || 0
+            });
+            
+            logManager.addLog(`员工 ${employee.name} 授权成功，授权令牌已保存`, 'success');
+            showNotification(`员工 ${employee.name} 授权成功！`, 'success');
+            
+            // 关闭模态框
+            const modal = bootstrap.Modal.getInstance(document.querySelector('.modal.show'));
+            if (modal) {
+                modal.hide();
+            }
+            
+            // 验证授权令牌是否已成功保存
+            try {
+                const savedToken = await databaseManager.getAuthToken(employeeId);
+                if (savedToken && savedToken.access_token) {
+                    logManager.addLog('授权令牌验证成功，开始刷新员工列表', 'success');
+                    await loadEmployeeData();
+                    logManager.addLog('员工列表刷新完成', 'success');
+                } else {
+                    logManager.addLog('授权令牌验证失败，延迟刷新', 'warning');
+                    // 如果验证失败，延迟2秒后再次尝试
+                    setTimeout(async () => {
+                        try {
+                            await loadEmployeeData();
+                            logManager.addLog('延迟刷新员工列表完成', 'success');
+                        } catch (error) {
+                            logManager.addLog(`延迟刷新员工列表失败: ${error.message}`, 'error');
+                        }
+                    }, 2000);
+                }
+            } catch (verifyError) {
+                logManager.addLog(`验证授权令牌时出错: ${verifyError.message}`, 'error');
+                // 如果验证出错，延迟2秒后刷新
+                setTimeout(async () => {
+                    try {
+                        await loadEmployeeData();
+                        logManager.addLog('延迟刷新员工列表完成', 'success');
+                    } catch (error) {
+                        logManager.addLog(`延迟刷新员工列表失败: ${error.message}`, 'error');
+                    }
+                }, 2000);
+            }
+            
+        } else {
+            logManager.addLog(`获取用户信息失败: ${userInfoResult.message}`, 'error');
+            showNotification(`获取用户信息失败: ${userInfoResult.message}`, 'error');
+        }
         
     } catch (error) {
-        console.error('授权失败:', error);
-        showNotification('授权失败: ' + error.message, 'error');
+        console.error('处理授权码失败:', error);
+        logManager.addLog(`处理授权码失败: ${error.message}`, 'error');
+        showNotification('处理授权码失败: ' + error.message, 'error');
     }
 }
 
 // 刷新员工数据
 async function refreshEmployee(employeeId) {
     try {
+        logManager.addLog(`开始刷新员工ID ${employeeId} 的数据`, 'info');
+        
         const employee = await databaseManager.getEmployee(employeeId);
         if (!employee) {
+            logManager.addLog('员工信息不存在', 'error');
             showNotification('员工信息不存在', 'error');
             return;
         }
         
+        logManager.addLog(`员工信息: ${employee.name} (@${employee.douyin_account})`, 'info');
+        
         if (employee.auth_status !== 'authorized' || !employee.access_token) {
+            logManager.addLog('该员工尚未授权，无法刷新数据', 'warning');
             showNotification('该员工尚未授权，无法刷新数据', 'warning');
             return;
         }
         
-        showNotification('正在刷新数据...', 'info');
-        
-        // 获取用户完整数据
-        const result = await douyinAPI.getCompleteUserData(employee.open_id, employee.access_token, 7);
-        
-        if (result.success) {
-            const userData = result.data;
-            
-            // 更新员工数据
-            const updatedEmployee = {
-                ...employee,
-                last_sync_time: new Date().toISOString(),
-                fans_count: userData.fansData?.total_fans || employee.fans_count || 0,
-                video_count: userData.videoStatus?.total_videos || employee.video_count || 0,
-                like_count: userData.likeData?.total_likes || employee.like_count || 0,
-                comment_count: userData.commentData?.total_comments || employee.comment_count || 0,
-                share_count: userData.shareData?.total_shares || employee.share_count || 0,
-                profile_views: userData.profileData?.total_views || employee.profile_views || 0
-            };
-            
-                 await databaseManager.updateEmployee(employeeId, updatedEmployee);
-            await databaseManager.saveUserData(employeeId, userData);
-            
-            // 重新加载表格数据
-            await loadEmployeeData();
-            
-            showNotification('数据刷新成功！', 'success');
-            
-        } else {
-            // 检查是否是token过期
-            if (result.error && (result.error.includes('access_token') || result.error.includes('过期'))) {
-                // 尝试刷新token
-                if (employee.refresh_token) {
-                    const refreshResult = await douyinAuth.refreshAccessToken(employee.refresh_token);
-                    if (refreshResult.success) {
-                        // 更新token并重试
-                        const updatedEmployee = {
-                            ...employee,
-                            access_token: refreshResult.data.access_token,
-                            refresh_token: refreshResult.data.refresh_token,
-                            expires_at: new Date(Date.now() + refreshResult.data.expires_in * 1000).toISOString()
-                        };
-                        
-                        await databaseManager.updateEmployee(employeeId, updatedEmployee);
-                        
-                        // 重试获取数据
-                        await refreshEmployee(employeeId);
-                        return;
-                    }
-                }
-                
-                // token刷新失败，更新授权状态
-                await databaseManager.updateEmployee(employeeId, {
-                    ...employee,
-                    auth_status: 'expired'
-                });
-                
-                await loadEmployeeData();
-                showNotification('授权已过期，请重新授权', 'warning');
+        // 获取授权令牌信息
+        let authToken = null;
+        try {
+            authToken = await databaseManager.getAuthToken(employeeId);
+        } catch (tokenError) {
+            // 如果是404错误（授权令牌不存在），使用员工表中的授权信息
+            if (tokenError.message.includes('404')) {
+                logManager.addLog('授权令牌表中暂无数据，使用员工表中的授权信息', 'info');
             } else {
-                throw new Error(result.message);
+                logManager.addLog(`获取授权令牌失败: ${tokenError.message}`, 'error');
             }
+        }
+        
+        const accessToken = authToken?.access_token || employee.access_token;
+        const openId = authToken?.open_id || employee.open_id;
+        
+        logManager.addLog(`使用Access Token: ${accessToken ? accessToken.substring(0, 8) + '...' : 'N/A'}`, 'info');
+        logManager.addLog(`使用Open ID: ${openId || 'N/A'}`, 'info');
+        
+        showNotification('正在同步数据，请稍候...', 'info');
+        
+        const syncResults = {};
+        let hasError = false;
+        
+        try {
+            // 1. 获取用户视频情况
+            logManager.addLog('📹 正在获取用户视频情况...', 'info');
+            const videoStatusResult = await douyinAPI.getUserVideoStatus(openId, accessToken);
+            logManager.addLog(`视频情况API返回: ${JSON.stringify(videoStatusResult, null, 2)}`, videoStatusResult.success ? 'success' : 'error');
+            syncResults.videoStatus = videoStatusResult;
+            
+            // 2. 获取用户粉丝数
+            logManager.addLog('👥 正在获取用户粉丝数...', 'info');
+            const fansCountResult = await douyinAPI.getUserFansCount(openId, accessToken);
+            logManager.addLog(`粉丝数API返回: ${JSON.stringify(fansCountResult, null, 2)}`, fansCountResult.success ? 'success' : 'error');
+            syncResults.fansCount = fansCountResult;
+            
+            // 3. 获取用户点赞数
+            logManager.addLog('👍 正在获取用户点赞数...', 'info');
+            const likeCountResult = await douyinAPI.getUserLikeCount(openId, accessToken);
+            logManager.addLog(`点赞数API返回: ${JSON.stringify(likeCountResult, null, 2)}`, likeCountResult.success ? 'success' : 'error');
+            syncResults.likeCount = likeCountResult;
+            
+            // 4. 获取用户评论数
+            logManager.addLog('💬 正在获取用户评论数...', 'info');
+            const commentCountResult = await douyinAPI.getUserCommentCount(openId, accessToken);
+            logManager.addLog(`评论数API返回: ${JSON.stringify(commentCountResult, null, 2)}`, commentCountResult.success ? 'success' : 'error');
+            syncResults.commentCount = commentCountResult;
+            
+            // 5. 获取用户分享数
+            logManager.addLog('📤 正在获取用户分享数...', 'info');
+            const shareCountResult = await douyinAPI.getUserShareCount(openId, accessToken);
+            logManager.addLog(`分享数API返回: ${JSON.stringify(shareCountResult, null, 2)}`, shareCountResult.success ? 'success' : 'error');
+            syncResults.shareCount = shareCountResult;
+            
+            // 6. 获取用户主页访问数
+            logManager.addLog('🏠 正在获取用户主页访问数...', 'info');
+            const homePvResult = await douyinAPI.getUserHomePv(openId, accessToken);
+            logManager.addLog(`主页访问数API返回: ${JSON.stringify(homePvResult, null, 2)}`, homePvResult.success ? 'success' : 'error');
+            syncResults.homePv = homePvResult;
+            
+        } catch (apiError) {
+            logManager.addLog(`API调用过程中发生错误: ${apiError.message}`, 'error');
+            hasError = true;
+        }
+        
+        // 汇总同步结果
+        logManager.addLog('📊 数据同步结果汇总:', 'info');
+        logManager.addLog(`完整同步结果: ${JSON.stringify(syncResults, null, 2)}`, 'info');
+        
+        // 更新员工数据
+        const updatedEmployee = {
+            ...employee,
+            last_sync_time: new Date().toISOString(),
+            fans_count: syncResults.fansCount?.success ? syncResults.fansCount.data?.fans_count || 0 : employee.fans_count || 0,
+            like_count: syncResults.likeCount?.success ? syncResults.likeCount.data?.like_count || 0 : employee.like_count || 0,
+            comment_count: syncResults.commentCount?.success ? syncResults.commentCount.data?.comment_count || 0 : employee.comment_count || 0,
+            share_count: syncResults.shareCount?.success ? syncResults.shareCount.data?.share_count || 0 : employee.share_count || 0,
+            home_pv: syncResults.homePv?.success ? syncResults.homePv.data?.pv_count || 0 : employee.home_pv || 0,
+            video_status: syncResults.videoStatus?.success ? syncResults.videoStatus.data : null
+        };
+        
+        logManager.addLog(`更新后的员工数据: ${JSON.stringify(updatedEmployee, null, 2)}`, 'info');
+        
+        await databaseManager.updateEmployee(employeeId, updatedEmployee);
+        
+        // 保存详细的同步数据
+        await databaseManager.saveUserData(employeeId, {
+            sync_time: new Date().toISOString(),
+            sync_results: syncResults,
+            fans_data: syncResults.fansCount?.data,
+            like_data: syncResults.likeCount?.data,
+            comment_data: syncResults.commentCount?.data,
+            share_data: syncResults.shareCount?.data,
+            home_pv_data: syncResults.homePv?.data,
+            video_status_data: syncResults.videoStatus?.data
+        });
+        
+        // 重新加载表格数据
+        await loadEmployeeData();
+        
+        if (hasError) {
+            logManager.addLog('数据同步完成，但部分API调用失败', 'warning');
+            showNotification('数据同步完成，但部分数据获取失败，请查看日志', 'warning');
+        } else {
+            logManager.addLog('数据同步成功完成', 'success');
+            showNotification('数据刷新成功！', 'success');
         }
         
     } catch (error) {
         console.error('刷新数据失败:', error);
+        logManager.addLog(`刷新数据失败: ${error.message}`, 'error');
+        logManager.addLog(`错误堆栈: ${error.stack}`, 'error');
         showNotification('刷新数据失败: ' + error.message, 'error');
+        
+        // 检查是否是token过期错误
+        if (error.message && (error.message.includes('access_token') || error.message.includes('过期') || error.message.includes('unauthorized'))) {
+            logManager.addLog('检测到授权过期，尝试刷新token', 'warning');
+            
+            const authToken = await databaseManager.getAuthToken(employeeId);
+            if (authToken?.refresh_token) {
+                try {
+                    const refreshResult = await douyinAuth.refreshAccessToken(authToken.refresh_token);
+                    if (refreshResult.success) {
+                        logManager.addLog('Token刷新成功，重新尝试同步数据', 'success');
+                        
+                        // 更新token
+                        await databaseManager.saveAuthToken(employeeId, {
+                            ...authToken,
+                            access_token: refreshResult.data.access_token,
+                            refresh_token: refreshResult.data.refresh_token,
+                            expires_at: new Date(Date.now() + refreshResult.data.expires_in * 1000).toISOString()
+                        });
+                        
+                        // 重新尝试同步
+                        await refreshEmployee(employeeId);
+                        return;
+                    } else {
+                        logManager.addLog('Token刷新失败，需要重新授权', 'error');
+                    }
+                } catch (refreshError) {
+                    logManager.addLog(`Token刷新异常: ${refreshError.message}`, 'error');
+                }
+            }
+            
+            // 更新授权状态为过期
+            await databaseManager.updateEmployee(employeeId, {
+                ...employee,
+                auth_status: 'expired'
+            });
+            
+            await loadEmployeeData();
+            showNotification('授权已过期，请重新授权', 'warning');
+        }
     }
 }
 
@@ -964,8 +1856,9 @@ async function handleAuthCallback(code, employeeId) {
                         access_token: tokenData.access_token,
                         refresh_token: tokenData.refresh_token,
                         open_id: tokenData.open_id,
-                        expires_at: updatedEmployee.expires_at,
-                        scope: tokenData.scope
+                        scope: tokenData.scope || '',
+                        expires_in: tokenData.expires_in || 0,
+                        refresh_expires_in: tokenData.refresh_expires_in || 0
                     });
                     
                     // 清除URL参数
@@ -1013,23 +1906,83 @@ async function updateEmployeeAuthStatus(employeeId, status) {
     }
 }
 
-// 删除员工
-async function deleteEmployee(employeeId) {
+// 显示用户视频情况
+async function showVideoStats(employeeId) {
     try {
+        logManager.addLog(`显示员工 ${employeeId} 的视频统计`, 'info');
+        
+        // 获取员工信息
         const employee = await databaseManager.getEmployee(employeeId);
         if (!employee) {
             showNotification('员工信息不存在', 'error');
             return;
         }
         
+        // 获取视频统计数据
+        const videoStats = await databaseManager.getUserVideoStats(employeeId, 30);
+        
+        // 更新模态框标题
+        document.getElementById('videoStatsModalLabel').textContent = `${employee.name} - 用户视频情况`;
+        
+        // 更新表格内容
+        const tbody = document.querySelector('#videoStatsModal tbody');
+        tbody.innerHTML = '';
+        
+        if (videoStats.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">暂无视频统计数据</td></tr>';
+        } else {
+            videoStats.forEach(stat => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${stat.stat_date}</td>
+                    <td>${stat.daily_publish_count || 0}</td>
+                    <td>${stat.daily_new_play_count || 0}</td>
+                    <td>${stat.total_publish_count || 0}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+        
+        // 显示模态框
+        const modal = new bootstrap.Modal(document.getElementById('videoStatsModal'));
+        modal.show();
+        
+        logManager.addLog('视频统计模态框已显示', 'success');
+        
+    } catch (error) {
+        console.error('显示视频统计失败:', error);
+        showNotification('显示视频统计失败: ' + error.message, 'error');
+        logManager.addLog('显示视频统计失败: ' + error.message, 'error');
+    }
+}
+
+// 删除员工
+async function deleteEmployee(employeeId) {
+    try {
+        logManager.addLog(`开始删除员工ID ${employeeId}`, 'info');
+        
+        const employee = await databaseManager.getEmployee(employeeId);
+        if (!employee) {
+            logManager.addLog('员工信息不存在', 'error');
+            showNotification('员工信息不存在', 'error');
+            return;
+        }
+        
+        logManager.addLog(`准备删除员工: ${employee.name}`, 'warning');
+        
         if (confirm(`确定要删除员工 "${employee.name}" 吗？此操作不可恢复。`)) {
+            logManager.addLog(`用户确认删除员工: ${employee.name}`, 'info');
             await databaseManager.deleteEmployee(employeeId);
             await loadEmployeeData();
+            logManager.addLog(`员工 ${employee.name} 删除成功`, 'success');
             showNotification('员工删除成功', 'success');
+        } else {
+            logManager.addLog('用户取消删除操作', 'info');
         }
         
     } catch (error) {
         console.error('删除员工失败:', error);
+        logManager.addLog(`删除员工失败: ${error.message}`, 'error');
         showNotification('删除员工失败: ' + error.message, 'error');
     }
 }
@@ -1133,16 +2086,17 @@ class LogManager {
             <span>${this.escapeHtml(message)}</span>
         `;
 
-        debugContent.appendChild(logEntry);
+        // 插入到最前面（倒序显示）
+        debugContent.insertBefore(logEntry, debugContent.firstChild);
 
         // 限制日志数量
         const logs = debugContent.querySelectorAll('.log-entry');
         if (logs.length > this.maxLogs) {
-            logs[0].remove();
+            logs[logs.length - 1].remove();
         }
 
-        // 自动滚动到底部
-        debugContent.scrollTop = debugContent.scrollHeight;
+        // 保持在顶部显示最新日志
+        debugContent.scrollTop = 0;
     }
 
     // 清空日志
@@ -1206,8 +2160,65 @@ class LogManager {
 // 创建全局日志管理器实例
 const logManager = new LogManager();
 
+// 通用模态框清理函数
+function cleanupModalBackdrop(modalId = null) {
+    // 移除所有可能的backdrop
+    document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
+        backdrop.remove();
+    });
+    
+    // 重置body样式
+    document.body.classList.remove('modal-open');
+    document.body.style.overflow = '';
+    document.body.style.paddingRight = '';
+    document.body.style.marginRight = '';
+    
+    // 如果指定了模态框ID，确保该模态框隐藏
+    if (modalId) {
+        const modalElement = document.getElementById(modalId);
+        if (modalElement) {
+            modalElement.style.display = 'none';
+            modalElement.classList.remove('show');
+            modalElement.setAttribute('aria-hidden', 'true');
+            modalElement.removeAttribute('aria-modal');
+            modalElement.removeAttribute('role');
+        }
+    }
+    
+    logManager.addLog('模态框背景已清理', 'info');
+}
+
+// 为所有模态框添加清理事件监听器
+document.addEventListener('DOMContentLoaded', function() {
+    // 为添加员工模态框添加事件监听器
+    const addEmployeeModal = document.getElementById('addEmployeeModal');
+    if (addEmployeeModal) {
+        // 监听所有可能的关闭事件
+        addEmployeeModal.addEventListener('hidden.bs.modal', () => {
+            setTimeout(() => cleanupModalBackdrop('addEmployeeModal'), 100);
+        });
+        
+        // 为取消和关闭按钮添加额外的清理
+        const cancelBtn = addEmployeeModal.querySelector('[data-bs-dismiss="modal"]');
+        const closeBtn = addEmployeeModal.querySelector('.btn-close');
+        
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                setTimeout(() => cleanupModalBackdrop('addEmployeeModal'), 300);
+            });
+        }
+        
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                setTimeout(() => cleanupModalBackdrop('addEmployeeModal'), 300);
+            });
+        }
+    }
+});
+
 // 清空日志的全局函数
 function clearLogs() {
+    logManager.addLog('用户点击了清空日志按钮', 'info');
     logManager.clearLogs();
 }
 
@@ -1252,24 +2263,118 @@ if (typeof APIClient !== 'undefined') {
 
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('页面DOM加载完成');
+    
     // 记录抖音API配置信息
     logManager.logSuccess('抖音API配置加载成功 - Client Key: awc23rrtn8rtoqrk');
     logManager.addLog('Client Secret已配置 (已隐藏)', 'info');
     logManager.addLog('系统初始化完成，准备就绪', 'success');
     
-    // 初始化数据
-    initializeApp();
+    // 测试按钮点击事件
+    logManager.addLog('正在测试按钮事件绑定...', 'info');
+    
+    // 测试按钮是否存在
+    const analysisBtn = document.querySelector('button[onclick="openAnalysisReport()"]');
+    const syncBtn = document.querySelector('button[onclick="manualSync()"]');
+    const addBtn = document.querySelector('button[onclick="addEmployee()"]');
+    
+    if (analysisBtn) {
+        logManager.addLog('找到数据分析按钮', 'success');
+    } else {
+        logManager.addLog('未找到数据分析按钮', 'error');
+    }
+    
+    if (syncBtn) {
+        logManager.addLog('找到手动同步按钮', 'success');
+    } else {
+        logManager.addLog('未找到手动同步按钮', 'error');
+    }
+    
+    if (addBtn) {
+         logManager.addLog('找到添加员工按钮', 'success');
+     } else {
+         logManager.addLog('未找到添加员工按钮', 'error');
+     }
+     
+     // 添加额外的事件监听器作为备用
+     if (analysisBtn) {
+         analysisBtn.addEventListener('click', function(e) {
+             logManager.addLog('数据分析按钮被点击（事件监听器）', 'info');
+             if (typeof openAnalysisReport === 'function') {
+                 openAnalysisReport();
+             } else {
+                 logManager.addLog('openAnalysisReport函数未定义', 'error');
+             }
+         });
+     }
+     
+     if (syncBtn) {
+         syncBtn.addEventListener('click', function(e) {
+             logManager.addLog('手动同步按钮被点击（事件监听器）', 'info');
+             if (typeof manualSync === 'function') {
+                 manualSync();
+             } else {
+                 logManager.addLog('manualSync函数未定义', 'error');
+             }
+         });
+     }
+     
+     if (addBtn) {
+         addBtn.addEventListener('click', function(e) {
+             logManager.addLog('添加员工按钮被点击（事件监听器）', 'info');
+             if (typeof addEmployee === 'function') {
+                 addEmployee();
+             } else {
+                 logManager.addLog('addEmployee函数未定义', 'error');
+             }
+         });
+     }
+     
+     // 初始化数据
+     initializeApp();
+});
+
+// 添加全局错误处理
+window.addEventListener('error', function(event) {
+    logManager.logError(`JavaScript错误: ${event.error.message}`, '全局错误处理');
+    console.error('全局错误:', event.error);
+});
+
+window.addEventListener('unhandledrejection', function(event) {
+    logManager.logError(`未处理的Promise拒绝: ${event.reason}`, '全局错误处理');
+    console.error('未处理的Promise拒绝:', event.reason);
 });
 
 // 应用初始化函数
 async function initializeApp() {
     try {
+        logManager.addLog('开始初始化应用...', 'info');
+        
         // 初始化管理器
         databaseManager = new DatabaseManager();
         douyinAuth = new DouyinAuth();
         douyinAPI = new DouyinAPI();
         
-        logManager.logSuccess('管理器初始化完成');
+        logManager.addLog('管理器初始化完成', 'success');
+        
+        // 测试函数是否可用
+        if (typeof openAnalysisReport === 'function') {
+            logManager.addLog('openAnalysisReport函数可用', 'success');
+        } else {
+            logManager.addLog('openAnalysisReport函数不可用', 'error');
+        }
+        
+        if (typeof manualSync === 'function') {
+            logManager.addLog('manualSync函数可用', 'success');
+        } else {
+            logManager.addLog('manualSync函数不可用', 'error');
+        }
+        
+        if (typeof addEmployee === 'function') {
+            logManager.addLog('addEmployee函数可用', 'success');
+        } else {
+            logManager.addLog('addEmployee函数不可用', 'error');
+        }
         
         // 加载员工数据
         await loadEmployeeData();
@@ -1280,6 +2385,8 @@ async function initializeApp() {
         
         // 更新最后同步时间
         updateLastSyncTime();
+        
+        logManager.addLog('应用初始化完成', 'success');
         
     } catch (error) {
         logManager.logError(error, '应用初始化失败');

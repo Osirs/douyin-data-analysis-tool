@@ -36,26 +36,41 @@ class DouyinAPI {
     async makeRequest(endpoint, params = {}, accessToken, method = 'GET') {
         try {
             const url = this.baseUrl + endpoint;
-            const headers = {
-                'Content-Type': 'application/json',
-                'access-token': accessToken
-            };
-
             let requestOptions = {
-                method: method,
-                headers: headers
+                method: method
             };
 
             if (method === 'GET') {
                 const queryString = new URLSearchParams(params).toString();
                 const fullUrl = queryString ? `${url}?${queryString}` : url;
                 requestOptions.url = fullUrl;
+                requestOptions.headers = {
+                    'access-token': accessToken
+                };
             } else {
-                requestOptions.body = JSON.stringify(params);
+                // POST请求使用form-urlencoded格式
+                const formData = new URLSearchParams();
+                Object.keys(params).forEach(key => {
+                    formData.append(key, params[key]);
+                });
+                formData.append('access_token', accessToken);
+                
+                requestOptions.headers = {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                };
+                requestOptions.body = formData;
             }
 
+            console.log(`🔄 调用抖音API: ${method} ${url}`, params);
+            
             const response = await fetch(method === 'GET' ? requestOptions.url || url : url, requestOptions);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
             const data = await response.json();
+            console.log('📥 抖音API响应:', data);
 
             if (data.err_no === 0 || data.error_code === 0) {
                 return {
@@ -64,7 +79,7 @@ class DouyinAPI {
                     message: '请求成功'
                 };
             } else {
-                console.error('API请求失败:', data);
+                console.error('❌ 抖音API请求失败:', data);
                 return {
                     success: false,
                     error: data,
@@ -72,7 +87,7 @@ class DouyinAPI {
                 };
             }
         } catch (error) {
-            console.error('网络请求失败:', error);
+            console.error('❌ 抖音API网络请求失败:', error);
             return {
                 success: false,
                 error: error.message,

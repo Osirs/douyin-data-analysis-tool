@@ -131,8 +131,8 @@ class DatabaseManager {
      */
     async saveAuthToken(employeeId, tokenData) {
         const {
-            access_token,
-            refresh_token,
+            access_token = null,
+            refresh_token = null,
             expires_in = 0,
             refresh_expires_in = 0,
             scope = '',
@@ -192,11 +192,78 @@ class DatabaseManager {
      * 保存用户数据
      */
     async saveUserData(employeeId, userData) {
+        // 处理新的数据结构（包含同步结果）
+        if (userData.sync_results) {
+            // 新的同步数据格式
+            const {
+                sync_time = new Date().toISOString(),
+                sync_results = {},
+                fans_data = {},
+                like_data = {},
+                comment_data = {},
+                share_data = {},
+                home_pv_data = {},
+                video_status_data = {}
+            } = userData;
+
+            // 保存详细的同步数据到JSON字段
+            const detailSql = `
+                INSERT INTO user_sync_details 
+                (employee_id, sync_time, sync_results, fans_data, like_data, 
+                 comment_data, share_data, home_pv_data, video_status_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                sync_results = VALUES(sync_results),
+                fans_data = VALUES(fans_data),
+                like_data = VALUES(like_data),
+                comment_data = VALUES(comment_data),
+                share_data = VALUES(share_data),
+                home_pv_data = VALUES(home_pv_data),
+                video_status_data = VALUES(video_status_data)
+            `;
+
+            try {
+                await this.query(detailSql, [
+                    employeeId, 
+                    sync_time,
+                    JSON.stringify(sync_results),
+                    JSON.stringify(fans_data),
+                    JSON.stringify(like_data),
+                    JSON.stringify(comment_data),
+                    JSON.stringify(share_data),
+                    JSON.stringify(home_pv_data),
+                    JSON.stringify(video_status_data)
+                ]);
+            } catch (error) {
+                // 如果表不存在，创建表
+                if (error.code === 'ER_NO_SUCH_TABLE') {
+                    await this.createUserSyncDetailsTable();
+                    // 重试插入
+                    await this.query(detailSql, [
+                        employeeId, 
+                        sync_time,
+                        JSON.stringify(sync_results),
+                        JSON.stringify(fans_data),
+                        JSON.stringify(like_data),
+                        JSON.stringify(comment_data),
+                        JSON.stringify(share_data),
+                        JSON.stringify(home_pv_data),
+                        JSON.stringify(video_status_data)
+                    ]);
+                } else {
+                    throw error;
+                }
+            }
+
+            return true;
+        }
+
+        // 处理传统的用户数据格式
         const {
             open_id = '',
             nickname = '',
             avatar_url = '',
-            follower_count = 0,
+            fans_count = 0,
             following_count = 0,
             total_favorited = 0,
             video_count = 0
@@ -206,13 +273,13 @@ class DatabaseManager {
         
         const sql = `
             INSERT INTO user_data 
-            (employee_id, open_id, nickname, avatar_url, follower_count, 
+            (employee_id, open_id, nickname, avatar_url, fans_count, 
              following_count, total_favorited, video_count, data_date)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
             nickname = VALUES(nickname),
             avatar_url = VALUES(avatar_url),
-            follower_count = VALUES(follower_count),
+            fans_count = VALUES(fans_count),
             following_count = VALUES(following_count),
             total_favorited = VALUES(total_favorited),
             video_count = VALUES(video_count)
@@ -220,9 +287,36 @@ class DatabaseManager {
 
         await this.query(sql, [
             employeeId, open_id, nickname, avatar_url,
-            follower_count, following_count, total_favorited, video_count, today
+            fans_count, following_count, total_favorited, video_count, today
         ]);
 
+        return true;
+    }
+
+    /**
+     * 创建用户同步详情表
+     */
+    async createUserSyncDetailsTable() {
+        const sql = `
+            CREATE TABLE IF NOT EXISTS user_sync_details (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                employee_id INT NOT NULL,
+                sync_time DATETIME NOT NULL,
+                sync_results JSON,
+                fans_data JSON,
+                like_data JSON,
+                comment_data JSON,
+                share_data JSON,
+                home_pv_data JSON,
+                video_status_data JSON,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_employee_sync (employee_id, sync_time),
+                FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `;
+        
+        await this.query(sql);
         return true;
     }
 
@@ -315,6 +409,47 @@ class DatabaseManager {
             LIMIT ?
         `;
         return await this.query(sql, [employeeId, limit]);
+    }
+
+    /**
+     * 保存用户视频统计数据
+     */
+    async saveUserVideoStats(employeeId, statsData) {
+        const {
+            stat_date,
+            daily_publish_count = 0,
+            daily_new_play_count = 0,
+            total_publish_count = 0
+        } = statsData;
+
+        const sql = `
+            INSERT INTO user_video_stats 
+            (employee_id, stat_date, daily_publish_count, daily_new_play_count, total_publish_count)
+            VALUES (?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+            daily_publish_count = VALUES(daily_publish_count),
+            daily_new_play_count = VALUES(daily_new_play_count),
+            total_publish_count = VALUES(total_publish_count)
+        `;
+
+        await this.query(sql, [
+            employeeId, stat_date, daily_publish_count, 
+            daily_new_play_count, total_publish_count
+        ]);
+
+        return true;
+    }
+
+    /**
+     * 获取用户视频统计数据
+     */
+    async getUserVideoStats(employeeId, days = 30) {
+        const sql = `
+            SELECT * FROM user_video_stats 
+            WHERE employee_id = ? AND stat_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+            ORDER BY stat_date DESC
+        `;
+        return await this.query(sql, [employeeId, days]);
     }
 
     // ==================== 同步记录管理 ====================

@@ -99,6 +99,33 @@ app.post('/api/employees', ensureDbInitialized, async (req, res) => {
     }
 });
 
+// 获取单个员工信息
+app.get('/api/employees/:id', ensureDbInitialized, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const employee = await dbManager.getEmployee(id);
+        
+        if (employee) {
+            res.json({
+                success: true,
+                data: employee
+            });
+        } else {
+            res.status(404).json({
+                success: false,
+                message: '员工不存在'
+            });
+        }
+    } catch (error) {
+        console.error('获取员工信息失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '获取员工信息失败: ' + error.message
+        });
+    }
+});
+
 // 更新员工信息
 app.put('/api/employees/:id', ensureDbInitialized, async (req, res) => {
     try {
@@ -150,6 +177,34 @@ app.delete('/api/employees/:id', ensureDbInitialized, async (req, res) => {
 
 // ==================== 授权管理API ====================
 
+// 授权回调处理
+app.get('/auth/callback', async (req, res) => {
+    try {
+        const { code, state, error, error_description } = req.query;
+        
+        console.log('收到授权回调:', { code, state, error, error_description });
+        
+        if (error) {
+            console.error('授权失败:', error, error_description);
+            return res.redirect(`/?error=${encodeURIComponent(error)}&error_description=${encodeURIComponent(error_description || '')}`);
+        }
+        
+        if (!code) {
+            console.error('授权回调缺少code参数');
+            return res.redirect('/?error=missing_code&error_description=授权回调缺少授权码');
+        }
+        
+        // 重定向到主页面，并传递授权码和状态参数
+        const redirectUrl = `/?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state || '')}`;
+        console.log('重定向到:', redirectUrl);
+        res.redirect(redirectUrl);
+        
+    } catch (error) {
+        console.error('处理授权回调失败:', error);
+        res.redirect(`/?error=callback_error&error_description=${encodeURIComponent(error.message)}`);
+    }
+});
+
 // 保存授权Token
 app.post('/api/auth/token/:employeeId', ensureDbInitialized, async (req, res) => {
     try {
@@ -194,6 +249,53 @@ app.get('/api/auth/token/:employeeId', ensureDbInitialized, async (req, res) => 
         res.status(500).json({
             success: false,
             message: '获取授权Token失败: ' + error.message
+        });
+    }
+});
+
+// 获取授权Token (兼容前端调用路径)
+app.get('/api/auth-tokens/:employeeId', ensureDbInitialized, async (req, res) => {
+    try {
+        const { employeeId } = req.params;
+        
+        const token = await dbManager.getAuthToken(employeeId);
+        
+        if (token) {
+            res.json({
+                success: true,
+                data: token
+            });
+        } else {
+            res.status(404).json({
+                success: false,
+                message: '未找到授权Token'
+            });
+        }
+    } catch (error) {
+        console.error('获取授权Token失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '获取授权Token失败: ' + error.message
+        });
+    }
+});
+
+// 保存授权Token (兼容前端调用路径)
+app.post('/api/auth-tokens', ensureDbInitialized, async (req, res) => {
+    try {
+        const { employeeId, tokenData } = req.body;
+        
+        await dbManager.saveAuthToken(employeeId, tokenData);
+        
+        res.json({
+            success: true,
+            message: '授权Token保存成功'
+        });
+    } catch (error) {
+        console.error('保存授权Token失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '保存授权Token失败: ' + error.message
         });
     }
 });
@@ -313,7 +415,7 @@ async function syncEmployeeData(employeeId) {
             open_id: tokenInfo.open_id,
             nickname: userInfo.nickname || '',
             avatar_url: userInfo.avatar || '',
-            follower_count: userStats.follower_count || 0,
+            fans_count: userStats.fans_count || 0,
             following_count: userStats.following_count || 0,
             total_favorited: userStats.total_favorited || 0,
             video_count: userStats.video_count || 0
@@ -486,6 +588,176 @@ app.post('/api/config', ensureDbInitialized, async (req, res) => {
     }
 });
 
+// ==================== 抖音数据同步API ====================
+
+// 手动同步数据
+app.post('/api/sync/manual', ensureDbInitialized, async (req, res) => {
+    try {
+        const { employeeId } = req.body;
+        
+        // 创建抖音API实例
+        const douyinAPI = new DouyinAPI();
+        
+        if (employeeId) {
+            // 同步单个员工数据
+            const result = await syncEmployeeData(employeeId, douyinAPI);
+            res.json({
+                success: true,
+                data: result,
+                message: '员工数据同步完成'
+            });
+        } else {
+            // 同步所有已授权员工数据
+            const employees = await dbManager.getAllEmployees();
+            const authorizedEmployees = employees.filter(emp => emp.auth_status === 'authorized');
+            
+            const results = [];
+            for (const employee of authorizedEmployees) {
+                try {
+                    const result = await syncEmployeeData(employee.id, douyinAPI);
+                    results.push({ employeeId: employee.id, success: true, data: result });
+                } catch (error) {
+                    results.push({ employeeId: employee.id, success: false, error: error.message });
+                }
+            }
+            
+            res.json({
+                success: true,
+                data: results,
+                message: `批量同步完成，共处理 ${results.length} 个员工`
+            });
+        }
+    } catch (error) {
+        console.error('数据同步失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '数据同步失败: ' + error.message
+        });
+    }
+});
+
+// 获取用户视频统计数据
+app.get('/api/video-stats/:employeeId', ensureDbInitialized, async (req, res) => {
+    try {
+        const { employeeId } = req.params;
+        const { days = 30 } = req.query;
+        
+        const stats = await dbManager.getUserVideoStats(employeeId, parseInt(days));
+        
+        res.json({
+            success: true,
+            data: stats
+        });
+    } catch (error) {
+        console.error('获取视频统计失败:', error);
+        res.status(500).json({
+            success: false,
+            message: '获取视频统计失败: ' + error.message
+        });
+    }
+});
+
+// 同步单个员工数据的函数
+async function syncEmployeeData(employeeId, douyinAPI) {
+    try {
+        // 获取员工的授权token
+        const tokenData = await dbManager.getAuthToken(employeeId);
+        if (!tokenData || !tokenData.access_token) {
+            throw new Error('员工未授权或token已过期');
+        }
+        
+        const { access_token, open_id } = tokenData;
+        const results = {};
+        
+        // 1. 获取用户粉丝数
+        try {
+            const fansData = await douyinAPI.getUserFansCount(open_id, access_token);
+            if (fansData.success) {
+                results.fans_count = fansData.data.follower_count || 0;
+            }
+        } catch (error) {
+            console.error('获取粉丝数失败:', error);
+        }
+        
+        // 2. 获取用户点赞数
+        try {
+            const likeData = await douyinAPI.getUserLikeNumber(open_id, access_token);
+            if (likeData.success) {
+                results.like_count = likeData.data.like_count || 0;
+            }
+        } catch (error) {
+            console.error('获取点赞数失败:', error);
+        }
+        
+        // 3. 获取用户评论数
+        try {
+            const commentData = await douyinAPI.getUserCommentCount(open_id, access_token);
+            if (commentData.success) {
+                results.comment_count = commentData.data.comment_count || 0;
+            }
+        } catch (error) {
+            console.error('获取评论数失败:', error);
+        }
+        
+        // 4. 获取用户分享数
+        try {
+            const shareData = await douyinAPI.getUserShareCount(open_id, access_token);
+            if (shareData.success) {
+                results.share_count = shareData.data.share_count || 0;
+            }
+        } catch (error) {
+            console.error('获取分享数失败:', error);
+        }
+        
+        // 5. 获取主页访问数
+        try {
+            const pvData = await douyinAPI.getUserHomePv(open_id, access_token);
+            if (pvData.success) {
+                results.home_pv = pvData.data.pv_count || 0;
+            }
+        } catch (error) {
+            console.error('获取主页访问数失败:', error);
+        }
+        
+        // 6. 获取用户视频状态
+        try {
+            const videoStatusData = await douyinAPI.getUserVideoStatus(open_id, access_token);
+            if (videoStatusData.success) {
+                results.video_count = videoStatusData.data.video_count || 0;
+                
+                // 保存视频统计数据
+                const today = new Date().toISOString().split('T')[0];
+                await dbManager.saveUserVideoStats(employeeId, {
+                    stat_date: today,
+                    daily_publish_count: videoStatusData.data.daily_publish_count || 0,
+                    daily_new_play_count: videoStatusData.data.daily_new_play_count || 0,
+                    total_publish_count: videoStatusData.data.total_publish_count || 0
+                });
+            }
+        } catch (error) {
+            console.error('获取视频状态失败:', error);
+        }
+        
+        // 更新员工表中的数据
+        await dbManager.updateEmployee(employeeId, {
+            ...results,
+            last_sync_time: new Date()
+        });
+        
+        // 保存用户数据历史记录
+        await dbManager.saveUserData(employeeId, {
+            open_id,
+            ...results,
+            data_date: new Date().toISOString().split('T')[0]
+        });
+        
+        return results;
+    } catch (error) {
+        console.error(`同步员工 ${employeeId} 数据失败:`, error);
+        throw error;
+    }
+}
+
 // ==================== 数据导入导出API ====================
 
 // 导出数据
@@ -528,6 +800,63 @@ app.delete('/api/data/clear', ensureDbInitialized, async (req, res) => {
 // 主页
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// 白名单授权页面
+app.get('/whitelist-auth', (req, res) => {
+    res.sendFile(path.join(__dirname, 'whitelist_auth.html'));
+});
+
+// 授权配置说明文档
+app.get('/auth-config-guide', (req, res) => {
+    const fs = require('fs');
+    const markdownPath = path.join(__dirname, '抖音授权配置说明.md');
+    
+    fs.readFile(markdownPath, 'utf8', (err, data) => {
+        if (err) {
+            res.status(404).send('配置说明文档未找到');
+            return;
+        }
+        
+        // 简单的Markdown转HTML
+        let html = data
+            .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+            .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+            .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/`(.*?)`/g, '<code>$1</code>')
+            .replace(/\n/g, '<br>');
+        
+        const fullHtml = `
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>抖音授权配置说明</title>
+            <style>
+                body { font-family: 'Microsoft YaHei', Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
+                h1 { color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
+                h2 { color: #007bff; margin-top: 30px; }
+                h3 { color: #28a745; }
+                code { background: #f8f9fa; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+                strong { color: #dc3545; }
+                table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+                th { background-color: #f8f9fa; }
+                .back-btn { display: inline-block; background: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin-bottom: 20px; }
+                .back-btn:hover { background: #0056b3; }
+            </style>
+        </head>
+        <body>
+            <a href="/whitelist-auth" class="back-btn">← 返回授权页面</a>
+            ${html}
+        </body>
+        </html>`;
+        
+        res.send(fullHtml);
+    });
 });
 
 // 健康检查

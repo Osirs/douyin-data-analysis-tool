@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>抖音测试白名单授权</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .logo {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            border-radius: 50%;
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 30px;
+            color: white;
+            font-weight: bold;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 16px;
+            line-height: 1.5;
+        }
+
+        .qr-container {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 30px;
+            margin: 30px 0;
+            border: 2px dashed #ddd;
+        }
+
+        #qrcode {
+            margin: 20px auto;
+        }
+
+        .auth-info {
+            background: #e3f2fd;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        .auth-info h3 {
+            color: #1976d2;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .auth-info p {
+            color: #555;
+            margin-bottom: 10px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .auth-url {
+            background: #f5f5f5;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 12px;
+            color: #333;
+            border-left: 4px solid #2196f3;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #2196f3, #21cbf3);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(33, 150, 243, 0.3);
+        }
+
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #856404;
+        }
+
+        .warning strong {
+            color: #d63031;
+        }
+
+        .steps {
+            text-align: left;
+            margin: 20px 0;
+        }
+
+        .steps ol {
+            padding-left: 20px;
+        }
+
+        .steps li {
+            margin: 10px 0;
+            color: #555;
+            line-height: 1.6;
+        }
+
+        .config-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        .config-section h3 {
+            color: #28a745;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .input-group input, .input-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .error-info {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #721c24;
+        }
+
+        .success-info {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #155724;
+        }
+    </style>
+    <!-- 引入QRCode.js库 -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">抖</div>
+        <h1>抖音测试白名单授权</h1>
+        <p class="subtitle">扫描下方二维码，授权应用获取trial.whitelist权限</p>
+        
+        <div class="auth-info">
+            <h3>📋 应用信息</h3>
+            <p><strong>Client Key:</strong> <span id="currentClientKey">awc23rrtn8rtoqrk</span></p>
+            <p><strong>权限范围:</strong> trial.whitelist（测试白名单权限）</p>
+            <p><strong>回调地址:</strong> <span id="currentRedirectUri">请先配置</span></p>
+        </div>
+
+        <div class="config-section">
+            <h3>⚙️ 配置参数</h3>
+            <div class="input-group">
+                <label for="clientKeyInput">Client Key:</label>
+                <input type="text" id="clientKeyInput" placeholder="请输入您的Client Key" value="awc23rrtn8rtoqrk">
+            </div>
+            <div class="input-group">
+                <label for="redirectUriInput">回调地址 (Redirect URI):</label>
+                <select id="redirectUriSelect">
+                    <option value="">请选择或输入回调地址</option>
+                    <option value="https://www.douyin.com">https://www.douyin.com</option>
+                    <option value="https://api.snssdk.com/oauth/authorize/callback/">https://api.snssdk.com/oauth/authorize/callback/</option>
+                    <option value="http://localhost:3000/auth/callback">http://localhost:3000/auth/callback</option>
+                    <option value="custom">自定义...</option>
+                </select>
+                <input type="text" id="customRedirectUri" placeholder="请输入自定义回调地址" style="display:none; margin-top:10px;">
+            </div>
+            <button class="btn" onclick="updateConfig()">🔄 更新配置并生成二维码</button>
+        </div>
+
+        <div class="qr-container">
+            <h3>🔍 扫码授权</h3>
+            <div id="qrcode"></div>
+            <p style="color: #666; font-size: 14px; margin-top: 15px;">请使用抖音APP扫描上方二维码</p>
+        </div>
+
+        <div class="auth-url">
+            <strong>授权链接:</strong><br>
+            <span id="authUrl"></span>
+        </div>
+
+        <div class="warning">
+            <strong>⚠️ 重要提示:</strong><br>
+            此授权用于申请测试白名单权限，仅限开发测试使用。正式环境请使用经过抖音开放平台审核的正式应用。<br>
+            <a href="/auth-config-guide" target="_blank" style="color: #007bff; text-decoration: underline;">📖 查看详细配置说明</a>
+        </div>
+
+        <div class="steps">
+            <h3>📝 操作步骤:</h3>
+            <ol>
+                <li>使用抖音APP扫描上方二维码</li>
+                <li>在抖音授权页面点击"同意授权"</li>
+                <li>授权成功后，您的抖音账号将被加入测试白名单</li>
+                <li>返回应用继续使用相关功能</li>
+            </ol>
+        </div>
+
+        <button class="btn" onclick="generateNewQR()">🔄 重新生成二维码</button>
+        <button class="btn" onclick="copyAuthUrl()">📋 复制授权链接</button>
+    </div>
+
+    <script>
+        // 抖音授权配置
+        let DOUYIN_CONFIG = {
+            clientKey: 'awc23rrtn8rtoqrk',
+            clientSecret: '584c1636208b8bd54fe7eb76d3cb5205',
+            redirectUri: '',
+            scope: 'trial.whitelist',
+            responseType: 'code'
+        };
+
+        // 更新配置
+        function updateConfig() {
+            const clientKey = document.getElementById('clientKeyInput').value.trim();
+            const redirectSelect = document.getElementById('redirectUriSelect').value;
+            let redirectUri = '';
+            
+            if (redirectSelect === 'custom') {
+                redirectUri = document.getElementById('customRedirectUri').value.trim();
+            } else {
+                redirectUri = redirectSelect;
+            }
+            
+            if (!clientKey) {
+                alert('请输入Client Key');
+                return;
+            }
+            
+            if (!redirectUri) {
+                alert('请选择或输入回调地址');
+                return;
+            }
+            
+            // 验证redirect_uri格式
+            if (!redirectUri.startsWith('http://') && !redirectUri.startsWith('https://')) {
+                alert('回调地址必须以http://或https://开头');
+                return;
+            }
+            
+            DOUYIN_CONFIG.clientKey = clientKey;
+            DOUYIN_CONFIG.redirectUri = redirectUri;
+            
+            // 更新显示
+            document.getElementById('currentClientKey').textContent = clientKey;
+            document.getElementById('currentRedirectUri').textContent = redirectUri;
+            
+            // 生成新的二维码
+            generateNewQR();
+            
+            // 显示成功信息
+            showMessage('配置更新成功！请扫描新的二维码进行授权。', 'success');
+        }
+        
+        // 显示消息
+        function showMessage(message, type) {
+            // 移除之前的消息
+            const existingMsg = document.querySelector('.error-info, .success-info');
+            if (existingMsg) {
+                existingMsg.remove();
+            }
+            
+            const msgDiv = document.createElement('div');
+            msgDiv.className = type === 'success' ? 'success-info' : 'error-info';
+            msgDiv.innerHTML = `<strong>${type === 'success' ? '✅' : '❌'}</strong> ${message}`;
+            
+            const container = document.querySelector('.container');
+            const qrContainer = document.querySelector('.qr-container');
+            container.insertBefore(msgDiv, qrContainer);
+            
+            // 3秒后自动移除消息
+            setTimeout(() => {
+                if (msgDiv.parentNode) {
+                    msgDiv.remove();
+                }
+            }, 3000);
+        }
+
+        // 生成授权URL
+        function generateAuthUrl() {
+            if (!DOUYIN_CONFIG.redirectUri) {
+                showMessage('请先配置回调地址！', 'error');
+                return null;
+            }
+            
+            const params = new URLSearchParams({
+                client_key: DOUYIN_CONFIG.clientKey,
+                response_type: DOUYIN_CONFIG.responseType,
+                scope: DOUYIN_CONFIG.scope,
+                redirect_uri: DOUYIN_CONFIG.redirectUri,
+                state: 'whitelist_auth_' + Date.now()
+            });
+            
+            return `https://open.douyin.com/platform/oauth/connect?${params.toString()}`;
+        }
+
+        // 生成二维码
+        function generateQRCode(url) {
+            const qrContainer = document.getElementById('qrcode');
+            qrContainer.innerHTML = ''; // 清空之前的二维码
+            
+            QRCode.toCanvas(qrContainer, url, {
+                width: 200,
+                height: 200,
+                colorDark: '#000000',
+                colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.M
+            }, function (error) {
+                if (error) {
+                    console.error('二维码生成失败:', error);
+                    qrContainer.innerHTML = '<p style="color: red;">二维码生成失败，请刷新页面重试</p>';
+                } else {
+                    console.log('二维码生成成功');
+                }
+            });
+        }
+
+        // 重新生成二维码
+        function generateNewQR() {
+            const authUrl = generateAuthUrl();
+            if (!authUrl) {
+                return;
+            }
+            document.getElementById('authUrl').textContent = authUrl;
+            generateQRCode(authUrl);
+        }
+        
+        // 处理回调地址选择
+        document.getElementById('redirectUriSelect').addEventListener('change', function() {
+            const customInput = document.getElementById('customRedirectUri');
+            if (this.value === 'custom') {
+                customInput.style.display = 'block';
+                customInput.focus();
+            } else {
+                customInput.style.display = 'none';
+            }
+        });
+
+        // 复制授权链接
+        function copyAuthUrl() {
+            const authUrl = document.getElementById('authUrl').textContent;
+            navigator.clipboard.writeText(authUrl).then(() => {
+                alert('授权链接已复制到剪贴板！');
+            }).catch(err => {
+                console.error('复制失败:', err);
+                // 备用复制方法
+                const textArea = document.createElement('textarea');
+                textArea.value = authUrl;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert('授权链接已复制到剪贴板！');
+            });
+        }
+
+        // 页面加载时初始化
+        window.onload = function() {
+            // 显示配置提示
+            showMessage('请先配置正确的Client Key和回调地址，然后点击"更新配置并生成二维码"按钮。', 'error');
+        };
+    </script>
+</body>
+</html>

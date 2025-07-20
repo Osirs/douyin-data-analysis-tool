@@ -1,21 +1,30 @@
-/**
- * 抖音开放平台授权处理模块
- * 包含获取授权码和access_token的完整流程
- */
+// 导入node-fetch用于HTTP请求
+const fetch = require('node-fetch');
 
+/**
+ * 抖音开放平台授权处理类
+ * 使用官方SDK实现完整的OAuth2.0授权流程
+ */
 class DouyinAuth {
     constructor() {
+        // 抖音开放平台配置
         this.config = {
-            client_key: 'awc23rrtn8rtoqrk',  // 用户提供的Client Key
-            client_secret: '584c1636208b8bd54fe7eb76d3cb5205',  // 用户提供的Client Secret
-            redirect_uri: window.location.origin + window.location.pathname,  // 当前页面作为回调地址
-            scope: 'user_info,data.external.user,data.external.item'  // 扩展权限范围以获取数据
+            client_key: 'awc23rtn8tcqrk',
+            client_secret: '1755b7c5571c9eca',
+            redirect_uri: 'https://open.douyin.com/platform/oauth/connect/',
+            scope: 'user_info,video.list,video.data,fans.data,following.data,interaction,data.external.user,data.external.item'
         };
-        
-        this.endpoints = {
-            authorize: 'https://open.douyin.com/platform/oauth/connect/',
+
+        // API端点配置
+        this.apiEndpoints = {
             token: 'https://open.douyin.com/oauth/access_token/',
             refresh: 'https://open.douyin.com/oauth/refresh_token/'
+        };
+
+        // API端点（用于授权URL生成）
+        this.endpoints = {
+            auth: 'https://open.douyin.com/platform/oauth/connect/',
+            userinfo: 'https://open.douyin.com/oauth/userinfo/'
         };
     }
 
@@ -41,30 +50,35 @@ class DouyinAuth {
     }
 
     /**
-     * 使用授权码获取access_token
+     * 使用授权码获取access_token（使用node-fetch）
      * @param {string} code - 授权码
      * @returns {Promise<Object>} 包含access_token的响应对象
      */
     async getAccessToken(code) {
-        const params = {
-            client_key: this.config.client_key,
-            client_secret: this.config.client_secret,
-            code: code,
-            grant_type: 'authorization_code'
-        };
-
         try {
-            const response = await fetch(this.endpoints.token, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(params)
+            console.log('🔄 正在获取access_token，授权码:', code);
+            
+            // 构建请求参数
+            const params = new URLSearchParams({
+                'client_key': this.config.client_key,
+                'client_secret': this.config.client_secret,
+                'code': code,
+                'grant_type': 'authorization_code'
             });
 
-            const data = await response.json();
+            // 发送POST请求获取access_token
+            const response = await fetch(this.apiEndpoints.token, {
+                method: 'POST',
+                body: params,
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                }
+            });
             
-            if (data.error_code === 0) {
+            const data = await response.json();
+            console.log('📥 API响应:', data);
+            
+            if (data && data.data && data.data.access_token) {
                 console.log('✅ 获取access_token成功:', data.data);
                 return {
                     success: true,
@@ -74,42 +88,49 @@ class DouyinAuth {
                 console.error('❌ 获取access_token失败:', data);
                 return {
                     success: false,
+                    message: data.message || data.error_description || '获取access_token失败',
                     error: data
                 };
             }
         } catch (error) {
-            console.error('❌ 网络请求失败:', error);
+            console.error('❌ 请求失败:', error);
             return {
                 success: false,
+                message: error.message || '请求失败',
                 error: error.message
             };
         }
     }
 
     /**
-     * 刷新access_token
+     * 刷新access_token（使用node-fetch）
      * @param {string} refreshToken - 刷新令牌
      * @returns {Promise<Object>} 包含新access_token的响应对象
      */
     async refreshAccessToken(refreshToken) {
-        const params = {
-            client_key: this.config.client_key,
-            refresh_token: refreshToken,
-            grant_type: 'refresh_token'
-        };
-
         try {
-            const response = await fetch(this.endpoints.refresh, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(params)
+            console.log('🔄 正在刷新access_token，刷新令牌:', refreshToken);
+            
+            // 构建请求参数
+            const params = new URLSearchParams({
+                'client_key': this.config.client_key,
+                'refresh_token': refreshToken,
+                'grant_type': 'refresh_token'
             });
 
-            const data = await response.json();
+            // 发送POST请求刷新access_token
+            const response = await fetch(this.apiEndpoints.refresh, {
+                method: 'POST',
+                body: params,
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                }
+            });
             
-            if (data.error_code === 0) {
+            const data = await response.json();
+            console.log('📥 刷新token API响应:', data);
+            
+            if (data && data.data && data.data.access_token) {
                 console.log('✅ 刷新access_token成功:', data.data);
                 return {
                     success: true,
@@ -119,13 +140,15 @@ class DouyinAuth {
                 console.error('❌ 刷新access_token失败:', data);
                 return {
                     success: false,
+                    message: data.message || data.error_description || '刷新access_token失败',
                     error: data
                 };
             }
         } catch (error) {
-            console.error('❌ 网络请求失败:', error);
+            console.error('❌ 刷新请求失败:', error);
             return {
                 success: false,
+                message: error.message || '刷新请求失败',
                 error: error.message
             };
         }
