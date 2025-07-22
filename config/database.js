@@ -639,9 +639,8 @@ class DatabaseManager {
      * 创建同步记录
      */
     async createSyncRecord(employeeId, syncType) {
-        const syncId = Date.now().toString();
-        
         if (this.useMemoryStorage) {
+            const syncId = Date.now().toString();
             if (!this.memoryData.syncRecords) {
                 this.memoryData.syncRecords = [];
             }
@@ -661,12 +660,12 @@ class DatabaseManager {
         
         const sql = `
             INSERT INTO sync_records 
-            (id, employee_id, sync_type, sync_status, start_time)
-            VALUES (?, ?, ?, 'running', NOW())
+            (employee_id, sync_type, sync_status, start_time)
+            VALUES (?, ?, 'running', NOW())
         `;
         
-        await this.query(sql, [syncId, employeeId, syncType]);
-        return syncId;
+        const result = await this.query(sql, [employeeId, syncType]);
+        return result.insertId;
     }
 
     /**

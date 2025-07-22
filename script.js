@@ -2239,39 +2239,8 @@ document.addEventListener('DOMContentLoaded', function() {
          logManager.addLog('未找到添加员工按钮', 'error');
      }
      
-     // 添加额外的事件监听器作为备用
-     if (analysisBtn) {
-         analysisBtn.addEventListener('click', function(e) {
-             logManager.addLog('数据分析按钮被点击（事件监听器）', 'info');
-             if (typeof openAnalysisReport === 'function') {
-                 openAnalysisReport();
-             } else {
-                 logManager.addLog('openAnalysisReport函数未定义', 'error');
-             }
-         });
-     }
-     
-     if (syncBtn) {
-         syncBtn.addEventListener('click', function(e) {
-             logManager.addLog('手动同步按钮被点击（事件监听器）', 'info');
-             if (typeof manualSync === 'function') {
-                 manualSync();
-             } else {
-                 logManager.addLog('manualSync函数未定义', 'error');
-             }
-         });
-     }
-     
-     if (addBtn) {
-         addBtn.addEventListener('click', function(e) {
-             logManager.addLog('添加员工按钮被点击（事件监听器）', 'info');
-             if (typeof addEmployee === 'function') {
-                 addEmployee();
-             } else {
-                 logManager.addLog('addEmployee函数未定义', 'error');
-             }
-         });
-     }
+     // 移除重复的事件监听器，避免重复执行
+     // 按钮已通过onclick属性绑定事件，无需额外的addEventListener
      
      // 初始化数据
      initializeApp();
